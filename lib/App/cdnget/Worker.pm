@@ -151,17 +151,25 @@ sub work
 		my ($in, $out, $err) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
 		my $env = {};
 		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
+
+		for (1..10)
+		{
+
+		$workerSemaphore->up();
+		$accepting = 1;
+		my $accept = $req->Accept();
 		eval
 		{
-			$workerSemaphore->up();
-			$accepting = 1;
-			my $accept = $req->Accept();
-			die "\n" if $self->terminating;
 			die "\n" unless $accept >= 0;
+			die "\n" if $self->terminating;
+
 			$workerSemaphore->down();
 			$accepting = 0;
-			$spareSemaphore->up();
-			$isSpare = 0;
+			if ($isSpare)
+			{
+				$spareSemaphore->up();
+				$isSpare = 0;
+			}
 
 			my $id = $env->{CDNGET_ID};
 			$self->throw("Invalid id: $id") unless $id =~ /^\w+$/i;
@@ -269,6 +277,12 @@ sub work
 		if ($@ and (ref($@) or $@ ne "\n"))
 		{
 			die $@;
+		}
+		{
+			local $@;
+			last if $self->terminating;
+		}
+
 		}
 	};
 	{
