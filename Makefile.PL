@@ -12,7 +12,7 @@ WriteMakefile(
 		'threads::shared' => '1.28',
 		'forks'			=> '0.29',
 		'SUPER'			=> '1.16',
-		'Thread::Semaphore'	=> '2.12',
+		'Thread::Semaphore'	=> '2.13',
 		'Time::HiRes'	=> '1.9740',
 		'DateTime'		=> '1.42',
 		'FCGI'			=> '0.78',
