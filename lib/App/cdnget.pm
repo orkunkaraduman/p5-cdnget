@@ -76,9 +76,14 @@ sub terminate
 		$terminating = 1;
 	}
 	say "Terminating...";
-	App::cdnget::Worker::terminate();
-	App::cdnget::Downloader::terminate();
+	async { App::cdnget::Worker::terminate() }->detach();
+	async { App::cdnget::Downloader::terminate() }->detach();
 	return 1;
+}
+
+sub terminated
+{
+	return App::cdnget::Worker::terminated() && App::cdnget::Downloader::terminated();
 }
 
 sub _listener
@@ -100,13 +105,13 @@ sub main
 	App::cdnget::Downloader::init(100);
 	$SIG{INT} = sub
 	{
-		threads->create(\&terminate)->detach();
+		terminate();
 	};
 	threads->create(\&_listener)->detach();
 	while (1)
 	{
 		usleep(10*1000);
-		last if App::cdnget::Worker::terminated() and App::cdnget::Downloader::terminated();
+		last if terminated();
 	}
 	usleep(100*1000);
 	return 0;
