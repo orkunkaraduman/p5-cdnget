@@ -73,6 +73,7 @@ sub terminate
 	{
 		lock($terminating);
 		return 0 if $terminating;
+		say "Terminating...";
 		$terminating = 1;
 		App::cdnget::Worker::terminate();
 		App::cdnget::Downloader::terminate();
@@ -92,11 +93,16 @@ sub main
 	{
 		terminate();
 	};
-	while (not $terminating)
+	my $listener = async
 	{
-		my $worker = App::cdnget::Worker->new();
-	}
-	say "Terminating...";
+		while (1)
+		{
+			my $worker = App::cdnget::Worker->new();
+			lock($terminating);
+			last if $terminating;
+		}
+	};
+	$listener->detach();
 	while (1)
 	{
 		usleep(10*1000);
