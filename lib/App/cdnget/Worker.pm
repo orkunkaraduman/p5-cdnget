@@ -52,14 +52,18 @@ sub terminate
 {
 	my $async = async
 	{
-		lock($terminating);
-		return 0 if $terminating;
-		$terminating = 1;
-		FCGI::CloseSocket($socket);
-		lock(%workers);
-		for (keys %workers)
 		{
-			threads->object($_)->kill('SIGINT');
+			lock(%workers);
+			for (keys %workers)
+			{
+				threads->object($_)->kill('SIGINT');
+			}
+		}
+		lock($terminating);
+		unless ($terminating)
+		{
+			$terminating = 1;
+			FCGI::CloseSocket($socket);
 		}
 	};
 	$async->detach();
@@ -88,8 +92,6 @@ sub terminated
 sub new
 {
 	my $class = shift;
-	#usleep(1*1000) while not $workerSemaphore->down_timed(1);
-	#usleep(1*1000) while not $spareSemaphore->down_timed(1);
 	$workerSemaphore->down();
 	$spareSemaphore->down();
 	if (terminating())

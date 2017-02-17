@@ -36,9 +36,10 @@ sub terminate
 	my $async = async
 	{
 		lock($terminating);
-		return 0 if $terminating;
-		$terminating = 1;
-		return 1;
+		unless ($terminating)
+		{
+			$terminating = 1;
+		}
 	};
 	$async->detach();
 }
