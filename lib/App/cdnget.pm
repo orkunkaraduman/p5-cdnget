@@ -20,6 +20,7 @@ B<This is ALPHA version>
 =cut
 BEGIN
 {
+	require Config;
 	if ($Config::Config{'useithreads'})
 	{
 		require threads;
@@ -77,7 +78,6 @@ sub terminate
 		$terminating = 1;
 		App::cdnget::Worker::terminate();
 		App::cdnget::Downloader::terminate();
-		return 1;
 	};
 	$async->detach();
 	return 1;

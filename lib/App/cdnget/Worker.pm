@@ -56,7 +56,6 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 		FCGI::CloseSocket($socket);
-		return 1;
 	};
 	$async->detach();
 	return 1;

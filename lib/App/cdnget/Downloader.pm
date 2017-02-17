@@ -41,7 +41,6 @@ sub terminate
 		return 1;
 	};
 	$async->detach();
-	return 1;
 }
 
 sub terminating
