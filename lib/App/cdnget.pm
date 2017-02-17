@@ -93,16 +93,16 @@ sub main
 	{
 		terminate();
 	};
-	my $listener = async
-	{
+#	my $listener = async
+#	{
 		while (1)
 		{
 			my $worker = App::cdnget::Worker->new();
 			lock($terminating);
 			last if $terminating;
 		}
-	};
-	$listener->detach();
+#	};
+#	$listener->detach();
 	while (1)
 	{
 		usleep(10*1000);

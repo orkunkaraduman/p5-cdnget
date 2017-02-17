@@ -83,8 +83,8 @@ sub terminated
 sub new
 {
 	my $class = shift;
-	usleep(1*1000) while not $workerSemaphore->down_nb();
-	usleep(1*1000) while not $spareSemaphore->down_nb();
+	usleep(1*1000) while not $workerSemaphore->down_timed(1);
+	usleep(1*1000) while not $spareSemaphore->down_timed(1);
 	if (terminating())
 	{
 		$workerSemaphore->up();
