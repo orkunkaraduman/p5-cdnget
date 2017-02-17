@@ -46,6 +46,11 @@ sub terminate
 
 sub terminating
 {
+	if (@_ > 0)
+	{
+		lock($terminating);
+		return $terminating;
+	}
 	lock($terminating);
 	return $terminating;
 }
