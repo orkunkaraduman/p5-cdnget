@@ -48,25 +48,17 @@ sub init
 	return 1;
 }
 
+sub final
+{
+	FCGI::CloseSocket($socket);
+	return 1;
+}
+
 sub terminate
 {
-	my $async = async
-	{
-		{
-			lock(%workers);
-			for (keys %workers)
-			{
-				threads->object($_)->kill('SIGINT');
-			}
-		}
-		lock($terminating);
-		unless ($terminating)
-		{
-			$terminating = 1;
-			FCGI::CloseSocket($socket);
-		}
-	};
-	$async->detach();
+	lock($terminating);
+	return 0 if $terminating;
+	$terminating = 1;
 	return 1;
 }
 
@@ -138,6 +130,15 @@ sub throw
 	App::cdnget::Exception->throw($msg, 1);
 }
 
+sub _accepter
+{
+	my ($req, $accepterSemaphore) = @_;
+	my $accept;
+	$accept = $req->Accept();
+	$accepterSemaphore->up();
+	return $accept;
+}
+
 sub work
 {
 	my $self = shift;
@@ -162,11 +163,28 @@ sub work
 		$req = FCGI::Request($in, $out, $err, \%env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 		eval
 		{
-			die "\n" unless $req->Accept() >= 0;
-			die "\n" if $self->terminating;
+			my $accepterSemaphore = Thread::Semaphore->new(0);
+			my $accepterThread = threads->create(\&_accepter, $req, $accepterSemaphore);
+			my $accept;
+			while (1)
+			{
+				if ($accepterSemaphore->down_timed(1))
+				{
+					$accept = $accepterThread->join();
+					last;
+				}
+				if ($self->terminating)
+				{
+					$accepterThread->detach();
+					$req->LastCall();
+					die "\n";
+				}
+				usleep(1*1000);
+			}
+			die "\n" unless $accept >= 0;
 			$spareSemaphore->up();
 			$isSpare = 0;
-		
+
 			my $id = $env{CDNGET_ID};
 			$self->throw("Invalid id: $id") unless $id =~ /^\w+$/i;
 			my $origin = URI->new($env{CDNGET_ORIGIN});
@@ -176,7 +194,6 @@ sub work
 			my $path = $cachePath."/".$id;
 			$path =~ s/\/\//\//g;
 
-=pod
 			mkdir($path) or $self->throw($!) unless -e $path;
 			my @dirs = Digest::SHA::sha256_hex($url) =~ /..../g;
 			my $file = pop @dirs;
@@ -186,7 +203,7 @@ sub work
 				mkdir($path) or $self->throw($!) unless -e $path;
 			}
 			$path .= "/$file";
-=cut
+=pod
 			mkdir($path) or $self->throw($!) unless -e $path;
 			for (split("/", $env{DOCUMENT_URI}))
 			{
@@ -195,7 +212,7 @@ sub work
 				mkdir($path) or $self->throw($!) unless -e $path;
 			}
 			$path .= "/data";
-
+=cut
 
 			my ($in_vbuf, $out_vbuf, $err_vbuf);
 			#my ($in_vbuf, $out_vbuf, $err_vbuf) = ("\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE);
@@ -290,8 +307,9 @@ sub work
 	if ($@ and (ref($@) or $@ ne "\n"))
 	{
 		warn $@;
+		return 0;
 	}
-	return;
+	return 1;
 }
 
 

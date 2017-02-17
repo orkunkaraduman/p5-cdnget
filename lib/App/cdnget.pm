@@ -70,39 +70,39 @@ our $terminating :shared = 0;
 
 sub terminate
 {
-	my $async = async
-	{
-		lock($terminating);
-		return 0 if $terminating;
-		say "Terminating...";
-		$terminating = 1;
-		App::cdnget::Worker::terminate();
-		App::cdnget::Downloader::terminate();
-	};
-	$async->detach();
+	lock($terminating);
+	return 0 if $terminating;
+	$terminating = 1;
+	say "Terminating...";
+	App::cdnget::Worker::terminate();
+	App::cdnget::Downloader::terminate();
 	return 1;
+}
+
+sub _listener
+{
+	while (1)
+	{
+		App::cdnget::Worker->new();
+		lock($terminating);
+		last if $terminating;
+	}
+	return 0;
 }
 
 sub main
 {
 	say "Started.";
 	$main::DEBUG = 1;
-	App::cdnget::Worker::init(4, 256, "127.0.0.1:9000", "/data/0/");
+	App::cdnget::Worker::init(16, 1024, "127.0.0.1:9000", "/data/0/cdnget");
 	App::cdnget::Downloader::init();
-	$SIG{'INT'} = sub
+	$SIG{INT} = sub
 	{
+		say threads->tid;
 		terminate();
 	};
-	my $listener = async
-	{
-		while (1)
-		{
-			my $worker = App::cdnget::Worker->new();
-			lock($terminating);
-			last if $terminating;
-		}
-	};
-	$listener->detach();
+	say threads->tid;
+	threads->create(\&_listener)->detach();
 	while (1)
 	{
 		usleep(10*1000);

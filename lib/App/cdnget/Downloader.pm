@@ -31,17 +31,17 @@ sub init
 	return 1;
 }
 
+sub final
+{
+	return 1;
+}
+
 sub terminate
 {
-	my $async = async
-	{
-		lock($terminating);
-		unless ($terminating)
-		{
-			$terminating = 1;
-		}
-	};
-	$async->detach();
+	lock($terminating);
+	return 0 if $terminating;
+	$terminating = 1;
+	return 1;
 }
 
 sub terminating
@@ -203,8 +203,9 @@ sub work
 	{
 		unlink($self->path);
 		warn $@;
+		return 0;
 	}
-	return;
+	return 1;
 }
 
 
