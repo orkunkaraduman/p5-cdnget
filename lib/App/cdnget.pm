@@ -70,9 +70,11 @@ our $terminating :shared = 0;
 
 sub terminate
 {
-	lock($terminating);
-	return 0 if $terminating;
-	$terminating = 1;
+	{
+		lock($terminating);
+		return 0 if $terminating;
+		$terminating = 1;
+	}
 	say "Terminating...";
 	App::cdnget::Worker::terminate();
 	App::cdnget::Downloader::terminate();
@@ -94,11 +96,11 @@ sub main
 {
 	say "Started.";
 	$main::DEBUG = 1;
-	App::cdnget::Worker::init(16, 1024, "127.0.0.1:9000", "/data/0/cdnget");
-	App::cdnget::Downloader::init();
+	App::cdnget::Worker::init(1024, 16, "127.0.0.1:9000", "/data/0/cdnget");
+	App::cdnget::Downloader::init(100);
 	$SIG{INT} = sub
 	{
-		terminate();
+		threads->create(\&terminate)->detach();
 	};
 	threads->create(\&_listener)->detach();
 	while (1)

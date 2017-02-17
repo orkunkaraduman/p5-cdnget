@@ -18,8 +18,11 @@ BEGIN
 }
 
 
+our $maxCount;
+
 our $terminating :shared = 0;
-our %downloaders :shared;
+our $terminated :shared = 0;
+our $downloaderSemaphore :shared;
 our %uids :shared;
 
 
@@ -28,6 +31,9 @@ attributes qw(:shared uid path url tid);
 
 sub init
 {
+	my ($_maxCount) = @_;
+	$maxCount = $_maxCount;
+	$downloaderSemaphore = Thread::Semaphore->new($maxCount);
 	return 1;
 }
 
@@ -38,19 +44,19 @@ sub final
 
 sub terminate
 {
-	lock($terminating);
-	return 0 if $terminating;
-	$terminating = 1;
+	{
+		lock($terminating);
+		return 0 if $terminating;
+		$terminating = 1;
+	}
+	$downloaderSemaphore->down($maxCount);
+	lock($terminated);
+	$terminated = 1;
 	return 1;
 }
 
 sub terminating
 {
-	if (@_ > 0)
-	{
-		lock($terminating);
-		return $terminating;
-	}
 	lock($terminating);
 	return $terminating;
 }
@@ -63,17 +69,18 @@ sub terminated
 		lock($self);
 		return defined($self->tid)? 0: 1;
 	}
-	lock($terminating);
-	lock(%downloaders);
-	return ($terminating and not keys(%downloaders))? 1: 0;
+	lock($terminated);
+	return $terminated;
 }
 
 sub new
 {
 	my $class = shift;
 	my ($uid, $path, $url) = @_;
+	usleep(1*1000) while not $downloaderSemaphore->down_timed(1);
 	if (terminating())
 	{
+		$downloaderSemaphore->up();
 		return;
 	}
 	lock(%uids);
@@ -90,8 +97,8 @@ sub new
 		unless (defined($self->tid))
 		{
 			App::cdnget::Exception->throw($thr->join());
-			return;
 		}
+		$thr->detach();
 	}
 	$uids{$uid} = $self;
 	return $self;
@@ -119,7 +126,6 @@ sub work
 {
 	my $self = shift;
 	my $tid = threads->tid();
-	my $thr = threads->self();
 
 	my $fh;
 	eval
@@ -134,10 +140,6 @@ sub work
 	}
 
 	$self->tid = $tid;
-	{
-		lock(%downloaders);
-		$downloaders{$tid} = $self;
-	}
 	{
 		lock($self);
 		cond_signal($self);
@@ -191,13 +193,9 @@ sub work
 			lock(%uids);
 			delete($uids{$self->uid});
 		}
-		{
-			lock(%downloaders);
-			delete $downloaders{$tid};
-		}
+		$downloaderSemaphore->up();
 		lock($self);
 		$self->tid = undef;
-		$thr->detach();
 	}
 	if ($@ and (ref($@) or $@ ne "\n"))
 	{

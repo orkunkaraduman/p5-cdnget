@@ -20,13 +20,13 @@ BEGIN
 }
 
 
-our $spareCount;
 our $maxCount;
+our $spareCount;
 our $addr = 0;
 our $cachePath;
 
 our $terminating :shared = 0;
-our %workers :shared;
+our $terminated :shared = 0;
 our $spareSemaphore :shared;
 our $workerSemaphore :shared;
 our $socket;
@@ -37,9 +37,9 @@ attributes qw(:shared tid);
 
 sub init
 {
-	my ($_spareCount, $_maxCount, $_addr, $_cachePath) = @_;
-	$spareCount = $_spareCount;
+	my ($_maxCount, $_spareCount, $_addr, $_cachePath) = @_;
 	$maxCount = $_maxCount;
+	$spareCount = $_spareCount;
 	$addr = $_addr;
 	$cachePath = $_cachePath;
 	$spareSemaphore = Thread::Semaphore->new($spareCount);
@@ -56,19 +56,19 @@ sub final
 
 sub terminate
 {
-	lock($terminating);
-	return 0 if $terminating;
-	$terminating = 1;
+	{
+		lock($terminating);
+		return 0 if $terminating;
+		$terminating = 1;
+	}
+	$workerSemaphore->down($maxCount);
+	lock($terminated);
+	$terminated = 1;
 	return 1;
 }
 
 sub terminating
 {
-	if (@_ > 0)
-	{
-		lock($terminating);
-		return $terminating;
-	}
 	lock($terminating);
 	return $terminating;
 }
@@ -81,20 +81,23 @@ sub terminated
 		lock($self);
 		return defined($self->tid)? 0: 1;
 	}
-	lock($terminating);
-	lock(%workers);
-	return ($terminating and not keys(%workers))? 1: 0;
+	lock($terminated);
+	return $terminated;
 }
 
 sub new
 {
 	my $class = shift;
+	while (not $spareSemaphore->down_timed(1))
+	{
+		usleep(1*1000);
+		return if terminating();
+	}
 	usleep(1*1000) while not $workerSemaphore->down_timed(1);
-	usleep(1*1000) while not $spareSemaphore->down_timed(1);
 	if (terminating())
 	{
-		$workerSemaphore->up();
 		$spareSemaphore->up();
+		$workerSemaphore->up();
 		return;
 	}
 	my $self = $class->SUPER();
@@ -106,8 +109,8 @@ sub new
 		unless (defined($self->tid))
 		{
 			App::cdnget::Exception->throw($thr->join());
-			return;
 		}
+		$thr->detach();
 	}
 	return $self;
 }
@@ -130,26 +133,12 @@ sub throw
 	App::cdnget::Exception->throw($msg, 1);
 }
 
-sub _accepter
-{
-	my ($req, $accepterSemaphore) = @_;
-	my $accept;
-	$accept = $req->Accept();
-	$accepterSemaphore->up();
-	return $accept;
-}
-
 sub work
 {
 	my $self = shift;
 	my $tid = threads->tid();
-	my $thr = threads->self();
 
 	$self->tid = $tid;
-	{
-		lock(%workers);
-		$workers{$tid} = $self;
-	}
 	{
 		lock($self);
 		cond_signal($self);
@@ -159,38 +148,23 @@ sub work
 	eval
 	{
 		my ($in, $out, $err) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
-		my $req;
-		my %env :shared;
-		$req = FCGI::Request($in, $out, $err, \%env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
+		my $env = {};
+		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 		eval
 		{
-			my $accepterSemaphore = Thread::Semaphore->new(0);
-			my $accepterThread = threads->create(\&_accepter, $req, $accepterSemaphore);
-			my $accept;
-			while (1)
-			{
-				if ($accepterSemaphore->down_timed(1))
-				{
-					$accept = $accepterThread->join();
-					last;
-				}
-				if ($self->terminating)
-				{
-					$accepterThread->detach();
-					$req->LastCall();
-					die "\n";
-				}
-				usleep(1*1000);
-			}
-			die "\n" unless $accept >= 0;
-			$spareSemaphore->up();
 			$isSpare = 0;
+			$workerSemaphore->up();
+			my $accept = $req->Accept();
+			$workerSemaphore->down();
+			$spareSemaphore->up();
+			die "\n" unless $accept >= 0;
+			die "\n" if $self->terminating;
 
-			my $id = $env{CDNGET_ID};
+			my $id = $env->{CDNGET_ID};
 			$self->throw("Invalid id: $id") unless $id =~ /^\w+$/i;
-			my $origin = URI->new($env{CDNGET_ORIGIN});
+			my $origin = URI->new($env->{CDNGET_ORIGIN});
 			$self->throw("Invalid scheme") unless $origin->scheme =~ /^http|https$/i;
-			my $url = $origin->scheme."://".$origin->host_port.($origin->path."/".$env{DOCUMENT_URI})=~s/\/\//\//gr;
+			my $url = $origin->scheme."://".$origin->host_port.($origin->path."/".$env->{DOCUMENT_URI})=~s/\/\//\//gr;
 			my $uid = "#$id=$url";
 			my $path = $cachePath."/".$id;
 			$path =~ s/\/\//\//g;
@@ -204,16 +178,6 @@ sub work
 				mkdir($path) or $self->throw($!) unless -e $path;
 			}
 			$path .= "/$file";
-=pod
-			mkdir($path) or $self->throw($!) unless -e $path;
-			for (split("/", $env{DOCUMENT_URI}))
-			{
-				next if not $_;
-				$path .= "/$_";
-				mkdir($path) or $self->throw($!) unless -e $path;
-			}
-			$path .= "/data";
-=cut
 
 			my ($in_vbuf, $out_vbuf, $err_vbuf);
 			#my ($in_vbuf, $out_vbuf, $err_vbuf) = ("\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE);
@@ -295,15 +259,10 @@ sub work
 	};
 	{
 		local $@;
-		{
-			lock(%workers);
-			delete $workers{$tid};
-		}
 		$workerSemaphore->up();
 		$spareSemaphore->up() if $isSpare;
 		lock($self);
 		$self->tid = undef;
-		$thr->detach();
 	}
 	if ($@ and (ref($@) or $@ ne "\n"))
 	{
