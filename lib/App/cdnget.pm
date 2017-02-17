@@ -101,20 +101,27 @@ sub main
 {
 	say "Started.";
 	$main::DEBUG = 1;
-	App::cdnget::Worker::init(1024, 16, "127.0.0.1:9000", "/data/0/cdnget");
-	App::cdnget::Downloader::init(100);
-	$SIG{INT} = sub
+	eval
 	{
-		terminate();
+		App::cdnget::Worker::init(1024, 16, "127.0.0.1:9000", "/data/0/cdnget");
+		App::cdnget::Downloader::init(100);
+		$SIG{INT} = sub
+		{
+			terminate();
+		};
+		threads->create(\&_listener)->detach();
+		while (1)
+		{
+			usleep(10*1000);
+			last if terminated();
+		}
+		App::cdnget::Worker::final();
+		App::cdnget::Downloader::final();
 	};
-	threads->create(\&_listener)->detach();
-	while (1)
+	if ($@)
 	{
-		usleep(10*1000);
-		last if terminated();
+		warn $@;
 	}
-	App::cdnget::Worker::final();
-	App::cdnget::Downloader::final();
 	usleep(100*1000);
 	return 0;
 }
