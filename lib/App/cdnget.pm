@@ -98,10 +98,8 @@ sub main
 	App::cdnget::Downloader::init();
 	$SIG{INT} = sub
 	{
-		say threads->tid;
 		terminate();
 	};
-	say threads->tid;
 	threads->create(\&_listener)->detach();
 	while (1)
 	{

@@ -158,8 +158,9 @@ sub work
 	my $isSpare = 1;
 	eval
 	{
-		my ($in, $out, $err, $req) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
-		my %env;
+		my ($in, $out, $err) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
+		my $req;
+		my %env :shared;
 		$req = FCGI::Request($in, $out, $err, \%env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 		eval
 		{
