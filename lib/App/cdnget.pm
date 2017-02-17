@@ -113,6 +113,8 @@ sub main
 		usleep(10*1000);
 		last if terminated();
 	}
+	App::cdnget::Worker::final();
+	App::cdnget::Downloader::final();
 	usleep(100*1000);
 	return 0;
 }

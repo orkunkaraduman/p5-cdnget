@@ -201,9 +201,9 @@ sub work
 	{
 		unlink($self->path);
 		warn $@;
-		return 0;
+		return $@;
 	}
-	return 1;
+	return;
 }
 
 

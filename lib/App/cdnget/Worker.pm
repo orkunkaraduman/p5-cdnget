@@ -267,9 +267,9 @@ sub work
 	if ($@ and (ref($@) or $@ ne "\n"))
 	{
 		warn $@;
-		return 0;
+		return $@;
 	}
-	return 1;
+	return;
 }
 
 
