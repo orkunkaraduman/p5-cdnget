@@ -87,7 +87,7 @@ sub main
 {
 	say "Started.";
 	$main::DEBUG = 1;
-	App::cdnget::Worker::init(4, 256, "127.0.0.1:9000", "/tmp/cdnget/");
+	App::cdnget::Worker::init(4, 256, "127.0.0.1:9000", "/data/0/");
 	App::cdnget::Downloader::init();
 	$SIG{'INT'} = sub
 	{
