@@ -169,6 +169,7 @@ sub work
 			my $path = $cachePath."/".$id;
 			$path =~ s/\/\//\//g;
 
+=pod
 			mkdir($path) or $self->throw($!) unless -e $path;
 			my @dirs = Digest::SHA::sha256_hex($url) =~ /..../g;
 			my $file = pop @dirs;
@@ -178,6 +179,16 @@ sub work
 				mkdir($path) or $self->throw($!) unless -e $path;
 			}
 			$path .= "/$file";
+=cut
+
+			mkdir($path) or $self->throw($!) unless -e $path;
+			for (split("/", $env->{DOCUMENT_URI}))
+			{
+				next if not $_;
+				$path .= "/$_";
+				mkdir($path) or $self->throw($!) unless -e $path;
+			}
+			$path .= "/data";
 
 			my ($in_vbuf, $out_vbuf, $err_vbuf);
 			#my ($in_vbuf, $out_vbuf, $err_vbuf) = ("\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE);
