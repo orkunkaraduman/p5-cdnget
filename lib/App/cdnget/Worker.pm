@@ -30,6 +30,7 @@ our $terminated :shared = 0;
 our $spareSemaphore :shared;
 our $workerSemaphore :shared;
 our $socket;
+our $accepterCount :shared = 0;
 
 
 attributes qw(:shared tid);
@@ -152,12 +153,27 @@ sub work
 		my $env = {};
 		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 
+		while (1)
+		{
+			lock($accepterCount);
+			last unless ($accepterCount);
+			usleep(10*1000);
+		}
+
 		for (1..10)
 		{
 
+		{
+			lock($accepterCount);
+			$accepterCount++;
+		}
 		$workerSemaphore->up();
 		$accepting = 1;
 		my $accept = $req->Accept();
+		{
+			lock($accepterCount);
+			$accepterCount--;
+		}
 		eval
 		{
 			die "\n" unless $accept >= 0;
@@ -165,6 +181,7 @@ sub work
 
 			$workerSemaphore->down();
 			$accepting = 0;
+
 			if ($isSpare)
 			{
 				$spareSemaphore->up();
