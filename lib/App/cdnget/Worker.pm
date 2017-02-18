@@ -203,6 +203,7 @@ sub worker
 		#my $buf = "\0"x$App::cdnget::CHUNK_SIZE;
 		while (1)
 		{
+			threads->yield();
 			return if $self->terminating;
 			my $downloaderTerminated = ! $downloader || $downloader->terminated;
 			$line = $fh->getline;
@@ -224,11 +225,11 @@ sub worker
 					return;
 				}
 			}
-			threads->yield();
 			last unless $line;
 		}
 		while (1)
 		{
+			threads->yield();
 			return if $self->terminating;
 			my $downloaderTerminated = ! $downloader || $downloader->terminated;
 			my $len = $fh->read($buf, $App::cdnget::CHUNK_SIZE);
@@ -246,7 +247,6 @@ sub worker
 				not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
 				return;
 			}
-			threads->yield();
 		}
 	}
 	return;
@@ -282,6 +282,7 @@ sub run
 
 		accepter_loop: for (1..100)
 		{
+			threads->yield();
 			last if $self->terminating;
 			my $accept;
 			{
