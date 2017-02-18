@@ -153,14 +153,16 @@ sub work
 		my $env = {};
 		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 
-		while (1)
+		wait_accept: while (0 and not $self->terminating)
 		{
-			lock($accepterCount);
-			last unless ($accepterCount);
+			{
+				lock($accepterCount);
+				last wait_accept unless $accepterCount;
+			}
 			usleep(10*1000);
 		}
 
-		for (1..10)
+		accepter_loop: for (1..10)
 		{
 
 		{
@@ -252,19 +254,24 @@ sub work
 				{
 					die "\n" if $self->terminating;
 					my $downloaderTerminated = ! $downloader || $downloader->terminated;
-					$fh->seek($fh->tell, 0) or $self->throw($!);
 					$line = $fh->getline;
 					unless (defined($line))
 					{
 						$self->throw($!) if $fh->error;
 						die "\n" if $downloaderTerminated;
+						my $pos = $fh->tell;
 						usleep(1*1000);
+						$fh->seek($pos, 0) or $self->throw($!);
 						next;
 					}
 					chomp $line;
 					if (not $line or $line =~ /^(Status\:|Content\-|Location\:)/i)
 					{
-						$out->print("$line\r\n") or $!{EPIPE} or $self->throw($!);
+						if (not $out->print("$line\r\n"))
+						{
+							not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+							die "\n";
+						}
 					}
 					threads->yield();
 					last unless $line;
@@ -273,16 +280,21 @@ sub work
 				{
 					die "\n" if $self->terminating;
 					my $downloaderTerminated = ! $downloader || $downloader->terminated;
-					$fh->seek($fh->tell, 0) or $self->throw($!);
 					my $len = $fh->read($buf, $App::cdnget::CHUNK_SIZE);
 					$self->throw($!) unless defined($len);
 					if ($len == 0)
 					{
 						die "\n" if $downloaderTerminated;
+						my $pos = $fh->tell;
 						usleep(1*1000);
+						$fh->seek($pos, 0) or $self->throw($!);
 						next;
 					}
-					$out->write($buf, $len) or not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+					if (not $out->write($buf, $len))
+					{
+						not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+						die "\n";
+					}
 					threads->yield();
 				}
 			}
@@ -297,7 +309,7 @@ sub work
 		}
 		{
 			local $@;
-			last if $self->terminating;
+			last accepter_loop if $self->terminating;
 		}
 
 		}
