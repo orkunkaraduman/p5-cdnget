@@ -20,17 +20,17 @@ BEGIN
 }
 
 
-our $maxCount;
-our $spareCount;
-our $addr = 0;
-our $cachePath;
+my $maxCount;
+my $spareCount;
+my $addr = 0;
+my $cachePath;
 
-our $terminating :shared = 0;
-our $terminated :shared = 0;
-our $spareSemaphore :shared;
-our $workerSemaphore :shared;
-our $socket;
-our $accepterCount :shared = 0;
+my $terminating :shared = 0;
+my $terminated :shared = 0;
+my $spareSemaphore :shared;
+my $workerSemaphore :shared;
+my $socket;
+my $accepterCount :shared = 0;
 
 
 attributes qw(:shared tid);
@@ -279,8 +279,10 @@ sub run
 			}
 			usleep(100*1000);
 		}
+		$spareSemaphore->up();
+		$spare = 0;
 
-		accepter_loop: for (1..100)
+		accepter_loop: while (1)
 		{
 			threads->yield();
 			last if $self->terminating;
@@ -304,11 +306,6 @@ sub run
 			}
 			$workerSemaphore->down();
 			$accepting = 0;
-			if ($spare)
-			{
-				$spareSemaphore->up();
-				$spare = 0;
-			}
 			eval
 			{
 				$self->worker($req);
@@ -320,6 +317,10 @@ sub run
 			if ($@)
 			{
 				die $@;
+			}
+			{
+				lock($accepterCount);
+				last accepter_loop if $accepterCount;
 			}
 		}
 	};

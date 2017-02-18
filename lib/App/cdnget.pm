@@ -112,7 +112,7 @@ sub main
 		threads->create(\&_listener)->detach();
 		while (1)
 		{
-			usleep(10*1000);
+			usleep(100*1000);
 			last if terminated();
 		}
 		App::cdnget::Worker::final();
