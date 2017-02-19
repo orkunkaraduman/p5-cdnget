@@ -87,7 +87,7 @@ sub main
 	$main::DEBUG = 1;
 	eval
 	{
-		App::cdnget::Worker::init(10240, 5, "127.0.0.1:9000", "/data/0/cdnget");
+		App::cdnget::Worker::init(20000, 10, "/tmp/cdnget.sock", "/data/0/cdnget");
 		App::cdnget::Downloader::init(100);
 		$SIG{INT} = sub
 		{
