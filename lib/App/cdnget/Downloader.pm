@@ -201,6 +201,7 @@ sub run
 			delete($uids{$self->uid});
 		}
 		$downloaderSemaphore->up();
+		usleep(10*1000); #cond_wait bug
 		lock($self);
 		$self->tid = undef;
 	};

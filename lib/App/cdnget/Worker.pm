@@ -29,8 +29,9 @@ my $terminating :shared = 0;
 my $terminated :shared = 0;
 my $spareSemaphore :shared;
 my $workerSemaphore :shared;
-my $socket;
+my $accepterSemaphore :shared;
 my $accepterCount :shared = 0;
+my $socket = 0;
 
 
 attributes qw(:shared tid);
@@ -43,15 +44,16 @@ sub init
 	$spareCount = $_spareCount;
 	$addr = $_addr;
 	$cachePath = $_cachePath;
-	$spareSemaphore = Thread::Semaphore->new($spareCount);
-	$workerSemaphore = Thread::Semaphore->new($maxCount);
-	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!);
+	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
+	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
+	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
+	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
 	return 1;
 }
 
 sub final
 {
-	FCGI::CloseSocket($socket);
+	FCGI::CloseSocket($socket) if $socket;
 	return 1;
 }
 
@@ -192,10 +194,9 @@ sub worker
 		local ($/, $\) = ("\r\n")x2;
 		my $line;
 		my $buf;
-		while (1)
+		while (not $self->terminating)
 		{
 			threads->yield();
-			return if $self->terminating;
 			my $downloaderTerminated = ! $downloader || $downloader->terminated;
 			$line = $fh->getline;
 			unless (defined($line))
@@ -215,10 +216,9 @@ sub worker
 			}
 			last unless $line;
 		}
-		while (1)
+		while (not $self->terminating)
 		{
 			threads->yield();
-			return if $self->terminating;
 			my $downloaderTerminated = ! $downloader || $downloader->terminated;
 			my $len = $fh->read($buf, $App::cdnget::CHUNK_SIZE);
 			$self->throw($!) unless defined($len);
@@ -263,21 +263,20 @@ sub run
 		wait_accept:
 		while (not $self->terminating)
 		{
+			$accepterSemaphore->down_timed(1);
 			do
 			{
 				lock($accepterCount);
 				last wait_accept unless $accepterCount;
 			};
-			usleep(1*1000);
 		}
 		$spareSemaphore->up();
 		$spare = 0;
 
 		accepter_loop:
-		while (1)
+		while (not $self->terminating)
 		{
 			threads->yield();
-			last if $self->terminating;
 			$workerSemaphore->up();
 			$accepting = 1;
 			my $accept;
@@ -292,6 +291,7 @@ sub run
 				lock($accepterCount);
 				$accepterCount--;
 			};
+			$accepterSemaphore->up();
 			last unless $accept >= 0;
 			if ($self->terminating)
 			{
@@ -325,6 +325,7 @@ sub run
 		local $@;
 		$workerSemaphore->up() unless $accepting;
 		$spareSemaphore->up() if $spare;
+		usleep(10*1000); #cond_wait bug
 		lock($self);
 		$self->tid = undef;
 	};
