@@ -91,10 +91,19 @@ sub new
 	my $class = shift;
 	while (not $spareSemaphore->down_timed(1))
 	{
-		usleep(1*1000);
-		return if terminating();
+		if (terminating())
+		{
+			return;
+		}
 	}
-	usleep(1*1000) while not $workerSemaphore->down_timed(1);
+	while (not $workerSemaphore->down_timed(1))
+	{
+		if (terminating())
+		{
+			$spareSemaphore->up();
+			return;
+		}
+	}
 	if (terminating())
 	{
 		$spareSemaphore->up();
@@ -184,7 +193,7 @@ sub worker
 		$fh = FileHandle->new($path, "<");
 		unless ($fh)
 		{
-			App::cdnget::Downloader->new($uid, $path, $url);
+			return unless App::cdnget::Downloader->new($uid, $path, $url);
 			$fh = FileHandle->new($path, "<") or $self->throw($!);
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};

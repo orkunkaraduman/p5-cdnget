@@ -81,22 +81,6 @@ sub terminate
 	return 1;
 }
 
-sub terminated
-{
-	return App::cdnget::Worker::terminated() && App::cdnget::Downloader::terminated();
-}
-
-sub _listener
-{
-	while (1)
-	{
-		App::cdnget::Worker->new();
-		lock($terminating);
-		last if $terminating;
-	}
-	return 0;
-}
-
 sub main
 {
 	say "Started.";
@@ -109,11 +93,10 @@ sub main
 		{
 			terminate();
 		};
-		threads->create(\&_listener)->detach();
-		while (1)
+		while (not App::cdnget::Worker::terminated() or not App::cdnget::Downloader::terminated())
 		{
-			usleep(100*1000);
-			last if terminated();
+			eval { App::cdnget::Worker->new() };
+			warn $@ if $@;
 		}
 		App::cdnget::Worker::final();
 		App::cdnget::Downloader::final();

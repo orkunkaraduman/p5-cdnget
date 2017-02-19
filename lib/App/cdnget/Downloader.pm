@@ -77,7 +77,13 @@ sub new
 {
 	my $class = shift;
 	my ($uid, $path, $url) = @_;
-	usleep(1*1000) while not $downloaderSemaphore->down_timed(1);
+	while (not $downloaderSemaphore->down_timed(1))
+	{
+		if (terminating())
+		{
+			return;
+		}
+	}
 	if (terminating())
 	{
 		$downloaderSemaphore->up();
