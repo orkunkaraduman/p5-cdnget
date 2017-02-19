@@ -18,12 +18,12 @@ BEGIN
 }
 
 
-our $maxCount;
+my $maxCount;
 
-our $terminating :shared = 0;
-our $terminated :shared = 0;
-our $downloaderSemaphore :shared;
-our %uids :shared;
+my $terminating :shared = 0;
+my $terminated :shared = 0;
+my $downloaderSemaphore :shared;
+my %uids :shared;
 
 
 attributes qw(:shared uid path url tid);
@@ -44,11 +44,12 @@ sub final
 
 sub terminate
 {
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-	}
+	};
 	$downloaderSemaphore->down($maxCount);
 	lock($terminated);
 	$terminated = 1;
@@ -98,7 +99,7 @@ sub new
 	$self->tid = undef;
 	{
 		lock($self);
-		my $thr = threads->create(\&work, $self) or $self->throw($!);
+		my $thr = threads->create(\&run, $self) or $self->throw($!);
 		cond_wait($self);
 		unless (defined($self->tid))
 		{
@@ -128,7 +129,7 @@ sub throw
 	App::cdnget::Exception->throw($msg, 1);
 }
 
-sub work
+sub run
 {
 	my $self = shift;
 	my $tid = threads->tid();
@@ -146,17 +147,15 @@ sub work
 	}
 
 	$self->tid = $tid;
+	do
 	{
 		lock($self);
 		cond_signal($self);
-	}
+	};
 
 	eval
 	{
-		my $vbuf;
-		#my $vbuf = "\0"x$App::cdnget::VBUF_SIZE;
-		eval { $fh->setvbuf($vbuf, FileHandle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-		$fh->binmode(":bytes");
+		$fh->binmode(":bytes") or $self->throw($!);;
 		my $ua = LWP::UserAgent->new(agent => "p5-App::cdnget/${App::cdnget::VERSION}",
 			max_redirect => 1,
 			requests_redirectable => [],
@@ -172,7 +171,7 @@ sub work
 				$fh->print("Status: ", $status) or $self->throw($!);
 				$fh->print("Client-URL: ", $self->url) or $self->throw($!);
 				$fh->print("Client-Date: ", POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
-				for my $header (sort grep $_ !~ /^Client\-/s, $headers->header_field_names())
+				for my $header (sort grep /^(Content\-|Location\:)/i, $headers->header_field_names())
 				{
 					$fh->print("$header: ", $headers->header($header)) or $self->throw($!);
 				}
@@ -192,6 +191,7 @@ sub work
 		die $response->header("X-Died")."\n" if $response->header("X-Died");
 		$self->throw("Download failed") if $response->header("Client-Aborted");
 	};
+	do
 	{
 		local $@;
 		$fh->close();
@@ -202,8 +202,8 @@ sub work
 		$downloaderSemaphore->up();
 		lock($self);
 		$self->tid = undef;
-	}
-	if ($@ and (ref($@) or $@ ne "\n"))
+	};
+	if ($@)
 	{
 		unlink($self->path);
 		warn $@;

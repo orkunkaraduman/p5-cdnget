@@ -62,7 +62,6 @@ our $DTF_RFC822_GMT = "%a, %d %b %Y %T GMT";
 our $DTF_YMDHMS = "%F %T";
 our $DTF_YMDHMS_Z = "%F %T %z";
 our $DTF_SYSLOG = "%b %e %T";
-our $VBUF_SIZE = 256*1024;
 our $CHUNK_SIZE = 256*1024;
 
 our $terminating :shared = 0;
@@ -70,11 +69,12 @@ our $terminating :shared = 0;
 
 sub terminate
 {
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-	}
+	};
 	say "Terminating...";
 	async { App::cdnget::Worker::terminate() }->detach();
 	async { App::cdnget::Downloader::terminate() }->detach();

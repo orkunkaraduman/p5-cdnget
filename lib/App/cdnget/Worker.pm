@@ -157,13 +157,12 @@ sub worker
 	my $origin = URI->new($env->{CDNGET_ORIGIN});
 	$self->throw("Invalid scheme") unless $origin->scheme =~ /^http|https$/i;
 	my $url = $origin->scheme."://".$origin->host_port.($origin->path."/".$env->{DOCUMENT_URI})=~s/\/\//\//gr;
-	my $uid = "#$id=$url";
+	my $pathDigest = Digest::SHA::sha256_hex($url);
+	my $uid = "#$id=$pathDigest";
 	my $path = $cachePath."/".$id;
 	$path =~ s/\/\//\//g;
-
-=pod
 	mkdir($path) or $self->throw($!) unless -e $path;
-	my @dirs = Digest::SHA::sha256_hex($url) =~ /..../g;
+	my @dirs = $pathDigest =~ /..../g;
 	my $file = pop @dirs;
 	for (@dirs)
 	{
@@ -171,22 +170,6 @@ sub worker
 		mkdir($path) or $self->throw($!) unless -e $path;
 	}
 	$path .= "/$file";
-=cut
-
-	mkdir($path) or $self->throw($!) unless -e $path;
-	for (split("/", $env->{DOCUMENT_URI}))
-	{
-		next if not $_;
-		$path .= "/$_";
-		mkdir($path) or $self->throw($!) unless -e $path;
-	}
-	$path .= "/data";
-
-	my ($in_vbuf, $out_vbuf, $err_vbuf);
-	#my ($in_vbuf, $out_vbuf, $err_vbuf) = ("\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE);
-	eval { $in->setvbuf($in_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-	eval { $out->setvbuf($out_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-	eval { $err->setvbuf($err_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
 
 	my $fh;
 	my $downloader;
@@ -201,19 +184,13 @@ sub worker
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};
 	};
-
-	my $vbuf;
-	#my $vbuf = "\0"x$App::cdnget::VBUF_SIZE;
-	eval { $fh->setvbuf($vbuf, FileHandle::_IOLBF, $App::cdnget::VBUF_SIZE) };
 	$fh->binmode(":bytes") or $self->throw($!);
-	#$fh->blocking(0);
 
 	do
 	{
 		local ($/, $\) = ("\r\n")x2;
 		my $line;
 		my $buf;
-		#my $buf = "\0"x$App::cdnget::CHUNK_SIZE;
 		while (1)
 		{
 			threads->yield();
@@ -230,13 +207,10 @@ sub worker
 				next;
 			}
 			chomp $line;
-			if (not $line or $line =~ /^(Status\:|Content\-|Location\:)/i)
+			if (not $out->print("$line\r\n"))
 			{
-				if (not $out->print("$line\r\n"))
-				{
-					not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
-					return;
-				}
+				not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+				return;
 			}
 			last unless $line;
 		}
