@@ -161,14 +161,15 @@ sub worker
 	my $uid = "#$id=$pathDigest";
 	my $path = $cachePath."/".$id;
 	$path =~ s/\/\//\//g;
-	mkdir($path) or $self->throw($!) unless -e $path;
+	mkdir($path);
 	my @dirs = $pathDigest =~ /..../g;
 	my $file = pop @dirs;
 	for (@dirs)
 	{
 		$path .= "/$_";
-		mkdir($path) or $self->throw($!) unless -e $path;
+		mkdir($path);
 	}
+	$self->throw($!) unless -e $path;
 	$path .= "/$file";
 
 	my $fh;
