@@ -23,7 +23,8 @@ my $maxCount;
 my $terminating :shared = 0;
 my $terminated :shared = 0;
 my $downloaderSemaphore :shared;
-my %uids :shared;
+
+our %uids :shared;
 
 
 attributes qw(:shared uid path url tid);
