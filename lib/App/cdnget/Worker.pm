@@ -268,7 +268,7 @@ sub run
 				lock($accepterCount);
 				last wait_accept unless $accepterCount;
 			};
-			usleep(100*1000);
+			usleep(1*1000);
 		}
 		$spareSemaphore->up();
 		$spare = 0;
