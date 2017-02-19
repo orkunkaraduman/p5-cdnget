@@ -45,7 +45,7 @@ sub init
 	$cachePath = $_cachePath;
 	$spareSemaphore = Thread::Semaphore->new($spareCount);
 	$workerSemaphore = Thread::Semaphore->new($maxCount);
-	$socket = FCGI::OpenSocket($addr, 5) or App::cdnget::Exception->throw($!);
+	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!);
 	return 1;
 }
 
@@ -57,11 +57,12 @@ sub final
 
 sub terminate
 {
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-	}
+	};
 	$workerSemaphore->down($maxCount);
 	lock($terminated);
 	$terminated = 1;
@@ -112,6 +113,7 @@ sub new
 	}
 	my $self = $class->SUPER();
 	$self->tid = undef;
+	do
 	{
 		lock($self);
 		my $thr = threads->create(\&run, $self) or $self->throw($!);
@@ -121,7 +123,7 @@ sub new
 			App::cdnget::Exception->throw($thr->join());
 		}
 		$thr->detach();
-	}
+	};
 	return $self;
 }
 
@@ -188,6 +190,7 @@ sub worker
 
 	my $fh;
 	my $downloader;
+	do
 	{
 		lock(%App::cdnget::Downloader::uids);
 		$fh = FileHandle->new($path, "<");
@@ -197,7 +200,7 @@ sub worker
 			$fh = FileHandle->new($path, "<") or $self->throw($!);
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};
-	}
+	};
 
 	my $vbuf;
 	#my $vbuf = "\0"x$App::cdnget::VBUF_SIZE;
@@ -205,6 +208,7 @@ sub worker
 	$fh->binmode(":bytes") or $self->throw($!);
 	#$fh->blocking(0);
 
+	do
 	{
 		local ($/, $\) = ("\r\n")x2;
 		my $line;
@@ -257,7 +261,7 @@ sub worker
 				return;
 			}
 		}
-	}
+	};
 	return;
 }
 
@@ -267,10 +271,11 @@ sub run
 	my $tid = threads->tid();
 
 	$self->tid = $tid;
+	do
 	{
 		lock($self);
 		cond_signal($self);
-	}
+	};
 
 	my $spare = 1;
 	my $accepting = 0;
@@ -280,33 +285,38 @@ sub run
 		my $env = {};
 		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
 
-		wait_accept: while (not $self->terminating)
+		wait_accept:
+		while (not $self->terminating)
 		{
+			do
 			{
 				lock($accepterCount);
 				last wait_accept unless $accepterCount;
-			}
+			};
 			usleep(100*1000);
 		}
 		$spareSemaphore->up();
 		$spare = 0;
 
-		accepter_loop: while (1)
+		accepter_loop:
+		while (1)
 		{
 			threads->yield();
 			last if $self->terminating;
+			$workerSemaphore->up();
+			$accepting = 1;
 			my $accept;
+			do
 			{
 				lock($accepterCount);
 				$accepterCount++;
-			}
-			$workerSemaphore->up();
-			$accepting = 1;
+			};
 			eval { $accept = $req->Accept() };
+			do
 			{
 				lock($accepterCount);
 				$accepterCount--;
-			}
+			};
 			last unless $accept >= 0;
 			if ($self->terminating)
 			{
@@ -319,27 +329,30 @@ sub run
 			{
 				$self->worker($req);
 			};
+			do
 			{
 				local $@;
 				$req->Finish();
-			}
+			};
 			if ($@)
 			{
 				die $@;
 			}
+			do
 			{
 				lock($accepterCount);
 				last accepter_loop if $accepterCount;
-			}
+			};
 		}
 	};
+	do
 	{
 		local $@;
 		$workerSemaphore->up() unless $accepting;
 		$spareSemaphore->up() if $spare;
 		lock($self);
 		$self->tid = undef;
-	}
+	};
 	if ($@)
 	{
 		warn $@;
