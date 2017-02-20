@@ -18,7 +18,7 @@ App::cdnget is a FastCGI application that flexible pull-mode Content Delivery Ne
 B<This is ALPHA version>
 
 =cut
-# TODO: Reset by peer ignore.
+# TODO: Reset by peer ignore. reponse Client-* params ignore.
 BEGIN
 {
 	require Config;

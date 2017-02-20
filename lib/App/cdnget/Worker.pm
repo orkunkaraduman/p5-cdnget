@@ -27,8 +27,8 @@ my $cachePath;
 
 my $terminating :shared = 0;
 my $terminated :shared = 0;
-my $spareSemaphore :shared;
 my $workerSemaphore :shared;
+my $spareSemaphore :shared;
 my $accepterSemaphore :shared;
 my $accepterCount :shared = 0;
 my $socket = 0;
@@ -44,8 +44,8 @@ sub init
 	$spareCount = $_spareCount;
 	$addr = $_addr;
 	$cachePath = $_cachePath;
-	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
 	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
+	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
 	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
 	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
 	return 1;
@@ -267,7 +267,7 @@ sub run
 			do
 			{
 				lock($accepterCount);
-				last wait_accept unless $accepterCount;
+				last wait_accept unless $accepterCount >= $spareCount;
 			};
 		}
 		$spareSemaphore->up();
@@ -316,7 +316,7 @@ sub run
 			do
 			{
 				lock($accepterCount);
-				last accepter_loop if $accepterCount;
+				last accepter_loop if $accepterCount >= $spareCount;
 			};
 		}
 	};
