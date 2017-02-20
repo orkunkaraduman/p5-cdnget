@@ -5,7 +5,7 @@ App::cdnget - CDN Engine
 
 =head1 VERSION
 
-version 0.02
+version 0.03
 
 =head1 ABSTRACT
 
@@ -50,7 +50,7 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 	our @ISA         = qw(Exporter);
 	our @EXPORT      = qw(main);
 	our @EXPORT_OK   = qw();

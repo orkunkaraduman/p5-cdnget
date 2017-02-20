@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 }
 
 
@@ -159,7 +159,7 @@ sub worker
 	my $id = $env->{CDNGET_ID};
 	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
 
-	my $uri = $env->{DOCUMENT_URI};
+	my $uri = $env->{REQUEST_URI};
 	$self->throw("Invalid URI") unless defined($uri);
 	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
 
