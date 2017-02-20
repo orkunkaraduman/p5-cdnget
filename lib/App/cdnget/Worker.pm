@@ -222,7 +222,7 @@ sub worker
 			{
 				if (not $out->print("$line\r\n"))
 				{
-					not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+					not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 					return;
 				}
 			}
@@ -244,7 +244,7 @@ sub worker
 			}
 			if (not $out->write($buf, $len))
 			{
-				not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 				return;
 			}
 		}

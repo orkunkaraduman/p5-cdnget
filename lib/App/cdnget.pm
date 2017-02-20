@@ -18,7 +18,6 @@ App::cdnget is a FastCGI application that flexible pull-mode Content Delivery Ne
 B<This is ALPHA version>
 
 =cut
-# TODO: Reset by peer ignore. reponse Client-* params ignore.
 BEGIN
 {
 	require Config;
@@ -88,7 +87,7 @@ sub main
 	$main::DEBUG = 1;
 	eval
 	{
-		App::cdnget::Worker::init(20000, 10, "/tmp/cdnget.sock", "/data/0/cdnget");
+		App::cdnget::Worker::init(20000, 10, "127.0.0.1:9000", "/tmp/cdnget");
 		App::cdnget::Downloader::init(20000);
 		$SIG{INT} = sub
 		{
