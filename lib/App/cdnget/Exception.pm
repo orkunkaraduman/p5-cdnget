@@ -7,7 +7,7 @@ use DateTime;
 
 BEGIN
 {
-	our $VERSION     = $App::cdnget::VERSION;
+	our $VERSION     = '0.02';
 }
 
 

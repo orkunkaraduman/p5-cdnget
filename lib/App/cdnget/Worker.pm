@@ -16,20 +16,22 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = $App::cdnget::VERSION;
+	our $VERSION     = '0.02';
 }
 
 
-our $spareCount;
-our $maxCount;
-our $addr = 0;
-our $cachePath;
+my $maxCount;
+my $spareCount;
+my $addr = 0;
+my $cachePath;
 
-our $terminating :shared = 0;
-our %workers :shared;
-our $spareSemaphore :shared;
-our $workerSemaphore :shared;
-our $socket;
+my $terminating :shared = 0;
+my $terminated :shared = 0;
+my $workerSemaphore :shared;
+my $spareSemaphore :shared;
+my $accepterSemaphore :shared;
+my $accepterCount :shared = 0;
+my $socket = 0;
 
 
 attributes qw(:shared tid);
@@ -37,28 +39,37 @@ attributes qw(:shared tid);
 
 sub init
 {
-	my ($_spareCount, $_maxCount, $_addr, $_cachePath) = @_;
-	$spareCount = $_spareCount;
+	my ($_maxCount, $_spareCount, $_addr, $_cachePath) = @_;
 	$maxCount = $_maxCount;
+	$spareCount = $_spareCount;
 	$addr = $_addr;
 	$cachePath = $_cachePath;
-	$spareSemaphore = Thread::Semaphore->new($spareCount);
-	$workerSemaphore = Thread::Semaphore->new($maxCount);
-	$socket = FCGI::OpenSocket($addr, 5) or App::cdnget::Exception->throw($!);
+	$cachePath = substr($cachePath, 0, length($cachePath)-1) while $cachePath and substr($cachePath, -1) eq "/";
+	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
+	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
+	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
+	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
+	return 1;
+}
+
+sub final
+{
+	FCGI::CloseSocket($socket) if $socket;
+	$socket = 0;
 	return 1;
 }
 
 sub terminate
 {
-	my $async = async
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-		FCGI::CloseSocket($socket);
-		return 1;
 	};
-	$async->detach();
+	$workerSemaphore->down($maxCount);
+	lock($terminated);
+	$terminated = 1;
 	return 1;
 }
 
@@ -76,34 +87,47 @@ sub terminated
 		lock($self);
 		return defined($self->tid)? 0: 1;
 	}
-	lock($terminating);
-	lock(%workers);
-	return ($terminating and not keys(%workers))? 1: 0;
+	lock($terminated);
+	return $terminated;
 }
 
 sub new
 {
 	my $class = shift;
-	$workerSemaphore->down();
-	$spareSemaphore->down();
+	while (not $spareSemaphore->down_timed(1))
+	{
+		if (terminating())
+		{
+			return;
+		}
+	}
+	while (not $workerSemaphore->down_timed(1))
+	{
+		if (terminating())
+		{
+			$spareSemaphore->up();
+			return;
+		}
+	}
 	if (terminating())
 	{
-		$workerSemaphore->up();
 		$spareSemaphore->up();
+		$workerSemaphore->up();
 		return;
 	}
 	my $self = $class->SUPER();
 	$self->tid = undef;
+	do
 	{
 		lock($self);
-		my $thr = threads->create(\&work, $self) or $self->throw($!);
+		my $thr = threads->create(\&run, $self) or $self->throw($!);
 		cond_wait($self);
 		unless (defined($self->tid))
 		{
 			App::cdnget::Exception->throw($thr->join());
-			return;
 		}
-	}
+		$thr->detach();
+	};
 	return $self;
 }
 
@@ -125,145 +149,200 @@ sub throw
 	App::cdnget::Exception->throw($msg, 1);
 }
 
-sub work
+sub worker
+{
+	my $self = shift;
+	my ($req) = @_;
+	my ($in, $out, $err) = $req->GetHandles();
+	my $env = $req->GetEnvironment();
+
+	my $id = $env->{CDNGET_ID};
+	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
+
+	my $uri = $env->{DOCUMENT_URI};
+	$self->throw("Invalid URI") unless defined($uri);
+	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
+
+	my $origin = $env->{CDNGET_ORIGIN};
+	$self->throw("Invalid origin") unless defined($origin);
+	$origin = URI->new($origin);
+	$self->throw("Invalid origin scheme") unless $origin->scheme =~ /^http|https$/i;
+	$origin->path(substr($origin->path, 0, length($origin->path)-1)) while $origin->path and substr($origin->path, -1) eq "/";
+
+	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
+	my $pathDigest = Digest::SHA::sha256_hex($url);
+	my $uid = "#$id=$pathDigest";
+	my $path = "$cachePath/$id";
+	mkdir($path);
+	my @dirs = $pathDigest =~ /..../g;
+	my $file = pop @dirs;
+	for (@dirs)
+	{
+		$path .= "/$_";
+		mkdir($path);
+	}
+	$self->throw("Cache directory not exists") unless -d $path;
+	$path .= "/$file";
+
+	my $fh;
+	my $downloader;
+	do
+	{
+		lock(%App::cdnget::Downloader::uids);
+		$fh = FileHandle->new($path, "<");
+		unless ($fh)
+		{
+			return unless App::cdnget::Downloader->new($uid, $path, $url);
+			$fh = FileHandle->new($path, "<") or $self->throw($!);
+		}
+		$downloader = $App::cdnget::Downloader::uids{$uid};
+	};
+	$fh->binmode(":bytes") or $self->throw($!);
+
+	do
+	{
+		local ($/, $\) = ("\r\n")x2;
+		my $line;
+		my $buf;
+		while (not $self->terminating)
+		{
+			threads->yield();
+			my $downloaderTerminated = ! $downloader || $downloader->terminated;
+			$line = $fh->getline;
+			unless (defined($line))
+			{
+				$self->throw($!) if $fh->error;
+				return if $downloaderTerminated;
+				my $pos = $fh->tell;
+				usleep(1*1000);
+				$fh->seek($pos, 0) or $self->throw($!);
+				next;
+			}
+			chomp $line;
+			unless ($line =~ /^(Client\-)/i)
+			{
+				if (not $out->print("$line\r\n"))
+				{
+					not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
+					return;
+				}
+			}
+			last unless $line;
+		}
+		while (not $self->terminating)
+		{
+			threads->yield();
+			my $downloaderTerminated = ! $downloader || $downloader->terminated;
+			my $len = $fh->read($buf, $App::cdnget::CHUNK_SIZE);
+			$self->throw($!) unless defined($len);
+			if ($len == 0)
+			{
+				return if $downloaderTerminated;
+				my $pos = $fh->tell;
+				usleep(1*1000);
+				$fh->seek($pos, 0) or $self->throw($!);
+				next;
+			}
+			if (not $out->write($buf, $len))
+			{
+				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
+				return;
+			}
+		}
+	};
+	return;
+}
+
+sub run
 {
 	my $self = shift;
 	my $tid = threads->tid();
-	my $thr = threads->self();
 
 	$self->tid = $tid;
-	{
-		lock(%workers);
-		$workers{$tid} = $self;
-	}
+	do
 	{
 		lock($self);
 		cond_signal($self);
-	}
+	};
 
-	my $isSpare = 1;
+	my $spare = 1;
+	my $accepting = 0;
 	eval
 	{
-		my ($in, $out, $err, $req) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
-		my %env;
-		$req = FCGI::Request($in, $out, $err, \%env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
-		eval
+		my ($in, $out, $err) = (IO::Handle->new(), IO::Handle->new(), IO::Handle->new());
+		my $env = {};
+		my $req = FCGI::Request($in, $out, $err, $env, $socket, FCGI::FAIL_ACCEPT_ON_INTR) or $self->throw($!);
+
+		wait_accept:
+		while (not $self->terminating)
 		{
-			die "\n" unless $req->Accept() >= 0;
-			die "\n" if $self->terminating;
-			$spareSemaphore->up();
-			$isSpare = 0;
-		
-			my $id = $env{CDNGET_ID};
-			$self->throw("Invalid id: $id") unless $id =~ /^\w+$/i;
-			my $origin = URI->new($env{CDNGET_ORIGIN});
-			$self->throw("Invalid scheme") unless $origin->scheme =~ /^http|https$/i;
-			my $url = $origin->scheme."://".$origin->host_port.($origin->path."/".$env{DOCUMENT_URI})=~s/\/\//\//gr;
-			my $uid = "#$id=$url";
-			my $path = $cachePath."/".$id;
-			$path =~ s/\/\//\//g;
-
-			mkdir($path) or $self->throw($!) unless -e $path;
-			my @dirs = Digest::SHA::sha256_hex($url) =~ /..../g;
-			my $file = pop @dirs;
-			for (@dirs)
+			$accepterSemaphore->down_timed(1);
+			do
 			{
-				$path .= "/$_";
-				mkdir($path) or $self->throw($!) unless -e $path;
-			}
-			$path .= "/$file";
-
-			my ($in_vbuf, $out_vbuf, $err_vbuf);
-			#my ($in_vbuf, $out_vbuf, $err_vbuf) = ("\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE, "\0"x$App::cdnget::VBUF_SIZE);
-			eval { $in->setvbuf($in_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-			eval { $out->setvbuf($out_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-			eval { $err->setvbuf($err_vbuf, IO::Handle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-
-			my $fh;
-			my $downloader;
-			{
-				lock(%App::cdnget::Downloader::uids);
-				$fh = FileHandle->new($path, "<");
-				unless ($fh)
-				{
-					App::cdnget::Downloader->new($uid, $path, $url);
-					$fh = FileHandle->new($path, "<") or $self->throw($!);
-				}
-				$downloader = $App::cdnget::Downloader::uids{$uid};
-			}
-
-			my $vbuf;
-			#my $vbuf = "\0"x$App::cdnget::VBUF_SIZE;
-			eval { $fh->setvbuf($vbuf, FileHandle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-			$fh->binmode(":bytes") or $self->throw($!);
-			#$fh->blocking(0);
-
-			{
-				local ($/, $\) = ("\r\n")x2;
-				my $line;
-				my $buf;
-				#my $buf = "\0"x$App::cdnget::CHUNK_SIZE;
-				while (1)
-				{
-					die "\n" if $self->terminating;
-					my $downloaderTerminated = ! $downloader || $downloader->terminated;
-					$fh->seek($fh->tell, 0) or $self->throw($!);
-					$line = $fh->getline;
-					unless (defined($line))
-					{
-						$self->throw($!) if $fh->error;
-						die "\n" if $downloaderTerminated;
-						usleep(1*1000);
-						next;
-					}
-					chomp $line;
-					if (not $line or $line =~ /^(Status\:|Content\-|Location\:)/i)
-					{
-						$out->print("$line\r\n") or $!{EPIPE} or $self->throw($!);
-					}
-					threads->yield();
-					last unless $line;
-				}
-				while (1)
-				{
-					die "\n" if $self->terminating;
-					my $downloaderTerminated = ! $downloader || $downloader->terminated;
-					$fh->seek($fh->tell, 0) or $self->throw($!);
-					my $len = $fh->read($buf, $App::cdnget::CHUNK_SIZE);
-					$self->throw($!) unless defined($len);
-					if ($len == 0)
-					{
-						die "\n" if $downloaderTerminated;
-						usleep(1*1000);
-						next;
-					}
-					$out->write($buf, $len) or not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
-					threads->yield();
-				}
-			}
-		};
-		{
-			local $@;
-			$req->Finish();
+				lock($accepterCount);
+				last wait_accept unless $accepterCount >= $spareCount;
+			};
 		}
-		if ($@ and (ref($@) or $@ ne "\n"))
+		$spareSemaphore->up();
+		$spare = 0;
+
+		accepter_loop:
+		while (not $self->terminating)
 		{
-			die $@;
+			threads->yield();
+			$workerSemaphore->up();
+			$accepting = 1;
+			my $accept;
+			do
+			{
+				lock($accepterCount);
+				$accepterCount++;
+			};
+			eval { $accept = $req->Accept() };
+			do
+			{
+				lock($accepterCount);
+				$accepterCount--;
+			};
+			$accepterSemaphore->up();
+			last unless $accept >= 0;
+			if ($self->terminating)
+			{
+				$req->Finish();
+				last;
+			}
+			$workerSemaphore->down();
+			$accepting = 0;
+			eval
+			{
+				$self->worker($req);
+			};
+			do
+			{
+				local $@;
+				$req->Finish();
+			};
+			if ($@)
+			{
+				die $@;
+			}
+			do
+			{
+				lock($accepterCount);
+				last accepter_loop if $accepterCount >= $spareCount;
+			};
 		}
 	};
+	do
 	{
 		local $@;
-		{
-			lock(%workers);
-			delete $workers{$tid};
-		}
-		$workerSemaphore->up();
-		$spareSemaphore->up() if $isSpare;
+		$workerSemaphore->up() unless $accepting;
+		$spareSemaphore->up() if $spare;
+		usleep(10*1000); #cond_wait bug
 		lock($self);
 		$self->tid = undef;
-		$thr->detach();
-	}
-	if ($@ and (ref($@) or $@ ne "\n"))
+	};
+	if ($@)
 	{
 		warn $@;
 	}

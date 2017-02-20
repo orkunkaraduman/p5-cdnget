@@ -2,7 +2,7 @@ NAME
     App::cdnget - CDN Engine
 
 VERSION
-    version 0.01
+    version 0.02
 
 ABSTRACT
     CDN Engine
@@ -45,6 +45,8 @@ DEPENDENCIES
     *   FCGI
 
     *   Digest::SHA
+
+    *   LWP::UserAgent
 
     *   Lazy::Utils
 

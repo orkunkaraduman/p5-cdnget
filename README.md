@@ -4,7 +4,7 @@ App::cdnget - CDN Engine
 
 # VERSION
 
-version 0.01
+version 0.02
 
 # ABSTRACT
 
@@ -42,6 +42,7 @@ This module requires these other modules and libraries:
 - DateTime
 - FCGI
 - Digest::SHA
+- LWP::UserAgent
 - Lazy::Utils
 - Object::Base
 

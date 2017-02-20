@@ -5,7 +5,7 @@ App::cdnget - CDN Engine
 
 =head1 VERSION
 
-version 0.01
+version 0.02
 
 =head1 ABSTRACT
 
@@ -20,6 +20,7 @@ B<This is ALPHA version>
 =cut
 BEGIN
 {
+	require Config;
 	if ($Config::Config{'useithreads'})
 	{
 		require threads;
@@ -49,7 +50,7 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.01';
+	our $VERSION     = '0.02';
 	our @ISA         = qw(Exporter);
 	our @EXPORT      = qw(main);
 	our @EXPORT_OK   = qw();
@@ -61,46 +62,55 @@ our $DTF_RFC822_GMT = "%a, %d %b %Y %T GMT";
 our $DTF_YMDHMS = "%F %T";
 our $DTF_YMDHMS_Z = "%F %T %z";
 our $DTF_SYSLOG = "%b %e %T";
-our $VBUF_SIZE = 256*1024;
 our $CHUNK_SIZE = 256*1024;
 
-our $terminating :shared = 0;
+my $terminating :shared = 0;
 
 
 sub terminate
 {
-	my $async = async
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-		App::cdnget::Worker::terminate();
-		App::cdnget::Downloader::terminate();
-		return 1;
 	};
-	$async->detach();
+	say "Terminating...";
+	async { App::cdnget::Worker::terminate() }->detach();
+	async { App::cdnget::Downloader::terminate() }->detach();
 	return 1;
 }
 
 sub main
 {
 	say "Started.";
-	$main::DEBUG = 1;
-	App::cdnget::Worker::init(4, 256, "127.0.0.1:9000", "/tmp/cdnget/");
-	App::cdnget::Downloader::init();
-	$SIG{'INT'} = sub
+	eval
 	{
-		terminate();
+		my $cmdargs = commandArgs({ valuableArgs => 1, noCommand => 1 }, @_);
+		my $spares = $cmdargs->{"--spares"};
+		$spares = 1 unless defined($spares) and $spares >= 1;
+		my $maxWorkers = $cmdargs->{"--max-workers"};
+		$maxWorkers = $spares+1 unless defined($maxWorkers) and $maxWorkers > $spares;
+		my $socket = $cmdargs->{"--socket"};
+		my $cachePath = $cmdargs->{"--cache-path"};
+		$cachePath = "/tmp/cdnget" unless defined($cachePath);
+		App::cdnget::Worker::init($maxWorkers, $spares, $socket, $cachePath);
+		App::cdnget::Downloader::init($maxWorkers*10);
+		$SIG{INT} = sub
+		{
+			terminate();
+		};
+		while (not App::cdnget::Worker::terminated() or not App::cdnget::Downloader::terminated())
+		{
+			eval { App::cdnget::Worker->new() };
+			warn $@ if $@;
+		}
+		App::cdnget::Worker::final();
+		App::cdnget::Downloader::final();
 	};
-	while (not $terminating)
+	if ($@)
 	{
-		my $worker = App::cdnget::Worker->new();
-	}
-	say "Terminating...";
-	while (1)
-	{
-		usleep(10*1000);
-		last if App::cdnget::Worker::terminated() and App::cdnget::Downloader::terminated();
+		warn $@;
 	}
 	usleep(100*1000);
 	return 0;
@@ -163,6 +173,10 @@ FCGI
 =item *
 
 Digest::SHA
+
+=item *
+
+LWP::UserAgent
 
 =item *
 

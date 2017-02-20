@@ -5,6 +5,7 @@ use bytes;
 use IO::Handle;
 use FileHandle;
 use Time::HiRes qw(sleep usleep);
+use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
 
@@ -14,12 +15,16 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = $App::cdnget::VERSION;
+	our $VERSION     = '0.02';
 }
 
 
-our $terminating :shared = 0;
-our %downloaders :shared;
+my $maxCount;
+
+my $terminating :shared = 0;
+my $terminated :shared = 0;
+my $downloaderSemaphore :shared;
+
 our %uids :shared;
 
 
@@ -28,19 +33,28 @@ attributes qw(:shared uid path url tid);
 
 sub init
 {
+	my ($_maxCount) = @_;
+	$maxCount = $_maxCount;
+	$downloaderSemaphore = Thread::Semaphore->new($maxCount);
+	return 1;
+}
+
+sub final
+{
 	return 1;
 }
 
 sub terminate
 {
-	my $async = async
+	do
 	{
 		lock($terminating);
 		return 0 if $terminating;
 		$terminating = 1;
-		return 1;
 	};
-	$async->detach();
+	$downloaderSemaphore->down($maxCount);
+	lock($terminated);
+	$terminated = 1;
 	return 1;
 }
 
@@ -58,17 +72,24 @@ sub terminated
 		lock($self);
 		return defined($self->tid)? 0: 1;
 	}
-	lock($terminating);
-	lock(%downloaders);
-	return ($terminating and not keys(%downloaders))? 1: 0;
+	lock($terminated);
+	return $terminated;
 }
 
 sub new
 {
 	my $class = shift;
 	my ($uid, $path, $url) = @_;
+	while (not $downloaderSemaphore->down_timed(1))
+	{
+		if (terminating())
+		{
+			return;
+		}
+	}
 	if (terminating())
 	{
+		$downloaderSemaphore->up();
 		return;
 	}
 	lock(%uids);
@@ -80,13 +101,13 @@ sub new
 	$self->tid = undef;
 	{
 		lock($self);
-		my $thr = threads->create(\&work, $self) or $self->throw($!);
+		my $thr = threads->create(\&run, $self) or $self->throw($!);
 		cond_wait($self);
 		unless (defined($self->tid))
 		{
 			App::cdnget::Exception->throw($thr->join());
-			return;
 		}
+		$thr->detach();
 	}
 	$uids{$uid} = $self;
 	return $self;
@@ -110,11 +131,10 @@ sub throw
 	App::cdnget::Exception->throw($msg, 1);
 }
 
-sub work
+sub run
 {
 	my $self = shift;
 	my $tid = threads->tid();
-	my $thr = threads->self();
 
 	my $fh;
 	eval
@@ -129,21 +149,15 @@ sub work
 	}
 
 	$self->tid = $tid;
-	{
-		lock(%downloaders);
-		$downloaders{$tid} = $self;
-	}
+	do
 	{
 		lock($self);
 		cond_signal($self);
-	}
+	};
 
 	eval
 	{
-		my $vbuf;
-		#my $vbuf = "\0"x$App::cdnget::VBUF_SIZE;
-		eval { $fh->setvbuf($vbuf, FileHandle::_IOLBF, $App::cdnget::VBUF_SIZE) };
-		$fh->binmode(":bytes");
+		$fh->binmode(":bytes") or $self->throw($!);;
 		my $ua = LWP::UserAgent->new(agent => "p5-App::cdnget/${App::cdnget::VERSION}",
 			max_redirect => 1,
 			requests_redirectable => [],
@@ -159,7 +173,7 @@ sub work
 				$fh->print("Status: ", $status) or $self->throw($!);
 				$fh->print("Client-URL: ", $self->url) or $self->throw($!);
 				$fh->print("Client-Date: ", POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
-				for my $header (sort grep $_ !~ /^Client\-/s, $headers->header_field_names())
+				for my $header (sort grep /^(Content\-|Location\:)/i, $headers->header_field_names())
 				{
 					$fh->print("$header: ", $headers->header($header)) or $self->throw($!);
 				}
@@ -173,12 +187,14 @@ sub work
 			{
 				my ($data, $response) = @_;
 				$fh->write($data, length($data)) or $self->throw($!);
+				$self->throw("Terminating") if $self->terminating;
 				return 1;
 			},
 		);
 		die $response->header("X-Died")."\n" if $response->header("X-Died");
 		$self->throw("Download failed") if $response->header("Client-Aborted");
 	};
+	do
 	{
 		local $@;
 		$fh->close();
@@ -186,18 +202,16 @@ sub work
 			lock(%uids);
 			delete($uids{$self->uid});
 		}
-		{
-			lock(%downloaders);
-			delete $downloaders{$tid};
-		}
+		$downloaderSemaphore->up();
+		usleep(10*1000); #cond_wait bug
 		lock($self);
 		$self->tid = undef;
-		$thr->detach();
-	}
-	if ($@ and (ref($@) or $@ ne "\n"))
+	};
+	if ($@)
 	{
 		unlink($self->path);
 		warn $@;
+		return $@;
 	}
 	return;
 }
