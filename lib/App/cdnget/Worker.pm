@@ -44,6 +44,7 @@ sub init
 	$spareCount = $_spareCount;
 	$addr = $_addr;
 	$cachePath = $_cachePath;
+	$cachePath = substr($cachePath, 0, length($cachePath)-1) while $cachePath and substr($cachePath, -1) eq "/";
 	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
 	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
 	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
@@ -155,14 +156,22 @@ sub worker
 	my $env = $req->GetEnvironment();
 
 	my $id = $env->{CDNGET_ID};
-	$self->throw("Invalid id: $id") unless $id =~ /^\w+$/i;
-	my $origin = URI->new($env->{CDNGET_ORIGIN});
-	$self->throw("Invalid scheme") unless $origin->scheme =~ /^http|https$/i;
-	my $url = $origin->scheme."://".$origin->host_port.($origin->path."/".$env->{DOCUMENT_URI})=~s/\/\//\//gr;
+	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
+
+	my $uri = $env->{DOCUMENT_URI};
+	$self->throw("Invalid URI") unless defined($uri);
+	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
+
+	my $origin = $env->{CDNGET_ORIGIN};
+	$self->throw("Invalid origin") unless defined($origin);
+	$origin = URI->new($origin);
+	$self->throw("Invalid origin scheme") unless $origin->scheme =~ /^http|https$/i;
+	$origin->path(substr($origin->path, 0, length($origin->path)-1)) while $origin->path and substr($origin->path, -1) eq "/";
+
+	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
 	my $pathDigest = Digest::SHA::sha256_hex($url);
 	my $uid = "#$id=$pathDigest";
-	my $path = $cachePath."/".$id;
-	$path =~ s/\/\//\//g;
+	my $path = "$cachePath/$id";
 	mkdir($path);
 	my @dirs = $pathDigest =~ /..../g;
 	my $file = pop @dirs;
@@ -171,7 +180,7 @@ sub worker
 		$path .= "/$_";
 		mkdir($path);
 	}
-	$self->throw($!) unless -e $path;
+	$self->throw($!) unless -d $path;
 	$path .= "/$file";
 
 	my $fh;
@@ -209,10 +218,13 @@ sub worker
 				next;
 			}
 			chomp $line;
-			if (not $out->print("$line\r\n"))
+			unless ($line =~ /^(Client\-)/i)
 			{
-				not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
-				return;
+				if (not $out->print("$line\r\n"))
+				{
+					not $! or $!{EPIPE} or $!{EPROTOTYPE} or $self->throw($!);
+					return;
+				}
 			}
 			last unless $line;
 		}
