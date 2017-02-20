@@ -15,7 +15,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = $App::cdnget::VERSION;
+	our $VERSION     = '0.02';
 }
 
 

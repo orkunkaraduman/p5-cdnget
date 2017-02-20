@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = $App::cdnget::VERSION;
+	our $VERSION     = '0.02';
 }
 
 
