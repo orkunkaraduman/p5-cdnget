@@ -19,7 +19,7 @@ WriteMakefile(
 		'Digest::SHA'	=> '5.96',
 		'LWP::UserAgent' => '6.15',
 		'Lazy::Utils'	=> '1.08',
-		'Object::Base'	=> '1.10',
+		'Object::Base'	=> '1.11',
 	},
 	EXE_FILES			=> [qw(
 	)],
