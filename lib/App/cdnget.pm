@@ -84,14 +84,13 @@ sub terminate
 sub main
 {
 	say "Started.";
-	$main::DEBUG = 1;
 	eval
 	{
 		my $cmdargs = commandArgs({ valuableArgs => 1, noCommand => 1 }, @_);
-		my $maxWorkers = $cmdargs->{"--max-workers"};
-		$maxWorkers = 1 unless defined($maxWorkers) and $maxWorkers >= 1;
 		my $spares = $cmdargs->{"--spares"};
 		$spares = 1 unless defined($spares) and $spares >= 1;
+		my $maxWorkers = $cmdargs->{"--max-workers"};
+		$maxWorkers = $spares+1 unless defined($maxWorkers) and $maxWorkers > $spares;
 		my $socket = $cmdargs->{"--socket"};
 		my $cachePath = $cmdargs->{"--cache-path"};
 		$cachePath = "/tmp/cdnget" unless defined($cachePath);
@@ -174,6 +173,10 @@ FCGI
 =item *
 
 Digest::SHA
+
+=item *
+
+LWP::UserAgent
 
 =item *
 

@@ -187,6 +187,7 @@ sub run
 			{
 				my ($data, $response) = @_;
 				$fh->write($data, length($data)) or $self->throw($!);
+				$self->throw("Terminating") if $self->terminating;
 				return 1;
 			},
 		);
