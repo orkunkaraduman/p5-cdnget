@@ -5,6 +5,7 @@ use bytes;
 use IO::Handle;
 use FileHandle;
 use Time::HiRes qw(sleep usleep);
+use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
 

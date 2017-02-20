@@ -25,7 +25,7 @@ use lib "${FindBin::Bin}/../lib";
 use App::cdnget;
 
 
-exit main();
+exit main(@ARGV);
 __END__
 =head1 AUTHOR
 

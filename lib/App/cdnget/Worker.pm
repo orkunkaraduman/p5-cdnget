@@ -55,6 +55,7 @@ sub init
 sub final
 {
 	FCGI::CloseSocket($socket) if $socket;
+	$socket = 0;
 	return 1;
 }
 
@@ -180,7 +181,7 @@ sub worker
 		$path .= "/$_";
 		mkdir($path);
 	}
-	$self->throw($!) unless -d $path;
+	$self->throw("Cache directory not exists") unless -d $path;
 	$path .= "/$file";
 
 	my $fh;

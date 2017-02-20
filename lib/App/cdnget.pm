@@ -64,7 +64,7 @@ our $DTF_YMDHMS_Z = "%F %T %z";
 our $DTF_SYSLOG = "%b %e %T";
 our $CHUNK_SIZE = 256*1024;
 
-our $terminating :shared = 0;
+my $terminating :shared = 0;
 
 
 sub terminate
@@ -87,8 +87,16 @@ sub main
 	$main::DEBUG = 1;
 	eval
 	{
-		App::cdnget::Worker::init(20000, 10, "127.0.0.1:9000", "/tmp/cdnget");
-		App::cdnget::Downloader::init(20000);
+		my $cmdargs = commandArgs({ valuableArgs => 1, noCommand => 1 }, @_);
+		my $maxWorkers = $cmdargs->{"--max-workers"};
+		$maxWorkers = 1 unless defined($maxWorkers) and $maxWorkers >= 1;
+		my $spares = $cmdargs->{"--spares"};
+		$spares = 1 unless defined($spares) and $spares >= 1;
+		my $socket = $cmdargs->{"--socket"};
+		my $cachePath = $cmdargs->{"--cache-path"};
+		$cachePath = "/tmp/cdnget" unless defined($cachePath);
+		App::cdnget::Worker::init($maxWorkers, $spares, $socket, $cachePath);
+		App::cdnget::Downloader::init($maxWorkers*10);
 		$SIG{INT} = sub
 		{
 			terminate();
