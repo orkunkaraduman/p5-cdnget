@@ -192,7 +192,7 @@ sub worker
 		$fh = FileHandle->new($path, "<");
 		unless ($fh)
 		{
-			return unless App::cdnget::Downloader->new($uid, $path, $url);
+			return unless App::cdnget::Downloader->new($uid, $path, $url, $env->{CDNGET_HOOK});
 			$fh = FileHandle->new($path, "<") or $self->throw($!);
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};
