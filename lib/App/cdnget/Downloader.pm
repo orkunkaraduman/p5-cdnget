@@ -18,7 +18,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 }
 
 
@@ -158,7 +158,7 @@ sub processHook_img
 	}
 	$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
 	$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
-	$params[2] = undef unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
+	$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
 	given ($hook)
 	{
 		when (/^imgresize$/i)
