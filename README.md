@@ -1,18 +1,18 @@
 # NAME
 
-App::cdnget - CDN Engine
+App::cdnget - CDN Reverse Proxy
 
 # VERSION
 
-version 0.02
+version 0.03
 
 # ABSTRACT
 
-CDN Engine
+CDN Reverse Proxy
 
 # DESCRIPTION
 
-App::cdnget is a FastCGI application that flexible pull-mode Content Delivery Network engine.
+p5-cdnget is a FastCGI application that flexible pull-mode Content Delivery Network reverse proxy.
 
 **This is ALPHA version**
 
@@ -43,6 +43,7 @@ This module requires these other modules and libraries:
 - FCGI
 - Digest::SHA
 - LWP::UserAgent
+- GD
 - Lazy::Utils
 - Object::Base
 
