@@ -39,16 +39,16 @@ attributes qw(:shared tid);
 
 sub init
 {
-	my ($_maxCount, $_spareCount, $_addr, $_cachePath) = @_;
-	$maxCount = $_maxCount;
+	my ($_spareCount, $_maxCount, $_cachePath, $_addr) = @_;
 	$spareCount = $_spareCount;
-	$addr = $_addr;
+	$maxCount = $_maxCount;
 	$cachePath = $_cachePath;
 	$cachePath = substr($cachePath, 0, length($cachePath)-1) while $cachePath and substr($cachePath, -1) eq "/";
+	$addr = $_addr;
 	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
 	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
 	$accepterSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
-	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
+	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if $addr;
 	return 1;
 }
 
@@ -67,7 +67,14 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	$workerSemaphore->down($maxCount);
+	App::cdnget::log_info("Workers gracefully terminating...");
+	if ($workerSemaphore->down_timed(3, $maxCount))
+	{
+		App::cdnget::log_info("Workers terminated.");
+	} else
+	{
+		App::cdnget::log_info("Workers will be forcefully terminated... Because did not respond in 3 seconds!");
+	}
 	lock($terminated);
 	$terminated = 1;
 	return 1;
@@ -144,7 +151,8 @@ sub throw
 	unless (ref($msg))
 	{
 		$msg = "Unknown" unless $msg;
-		$msg = "Worker $msg";
+		$msg = "Worker ".
+			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
 }
@@ -171,7 +179,7 @@ sub worker
 
 	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
 	my $pathDigest = Digest::SHA::sha256_hex($url);
-	my $uid = "#$id=$pathDigest";
+	my $uid = "#$id/$pathDigest";
 	my $path = "$cachePath/$id";
 	mkdir($path);
 	my @dirs = $pathDigest =~ /..../g;

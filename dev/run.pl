@@ -19,7 +19,6 @@ use utf8;
 use open qw(:utf8 :std);
 use open IO => ':bytes';
 use FindBin;
-use Data::Dumper;
 
 use lib "${FindBin::Bin}/../lib";
 use App::cdnget;

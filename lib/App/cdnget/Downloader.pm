@@ -11,6 +11,7 @@ use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
 use GD;
+use Lazy::Utils;
 
 use App::cdnget;
 use App::cdnget::Exception;
@@ -55,7 +56,14 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	$downloaderSemaphore->down($maxCount);
+	App::cdnget::log_info("Downloaders gracefully terminating...");
+	if ($downloaderSemaphore->down_timed(3, $maxCount))
+	{
+		App::cdnget::log_info("Downloaders terminated.");
+	} else
+	{
+		App::cdnget::log_info("Downloaders will be forcefully terminated... Because did not respond in 3 seconds!");
+	}
 	lock($terminated);
 	$terminated = 1;
 	return 1;
@@ -130,7 +138,10 @@ sub throw
 	unless (ref($msg))
 	{
 		$msg = "Unknown" unless $msg;
-		$msg = "Downloader ".$self->uid." $msg";
+		$msg = "Downloader ".
+			shellmeta("uid=${self->uid}", 1)." ".
+			shellmeta("url=${self->url}", 1)." ".
+			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
 }
