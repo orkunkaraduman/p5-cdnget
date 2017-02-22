@@ -1,7 +1,7 @@
 package App::cdnget;
 =head1 NAME
 
-App::cdnget - CDN Engine
+App::cdnget - CDN Reverse Proxy
 
 =head1 VERSION
 
@@ -9,11 +9,11 @@ version 0.03
 
 =head1 ABSTRACT
 
-CDN Engine
+CDN Reverse Proxy
 
 =head1 DESCRIPTION
 
-App::cdnget is a FastCGI application that flexible pull-mode Content Delivery Network engine.
+p5-cdnget is a FastCGI application that flexible pull-mode Content Delivery Network reverse proxy.
 
 B<This is ALPHA version>
 
@@ -52,7 +52,7 @@ BEGIN
 	require Exporter;
 	our $VERSION     = '0.03';
 	our @ISA         = qw(Exporter);
-	our @EXPORT      = qw(main);
+	our @EXPORT      = qw(main run);
 	our @EXPORT_OK   = qw();
 }
 
@@ -114,6 +114,11 @@ sub main
 	}
 	usleep(100*1000);
 	return 0;
+}
+
+sub run
+{
+	return main(@ARGV);
 }
 
 
