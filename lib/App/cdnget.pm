@@ -66,6 +66,7 @@ our $DTF_SYSLOG = "%b %e %T";
 our $CHUNK_SIZE = 256*1024;
 
 my $terminating :shared = 0;
+my $terminating_force :shared = 0;
 
 
 sub log_info
@@ -129,10 +130,16 @@ sub terminate
 	do
 	{
 		lock($terminating);
-		return 0 if $terminating;
+		if ($terminating)
+		{
+			log_info "Terminating...";
+			lock($terminating_force);
+			$terminating_force = 1;
+			return 0;
+		}
 		$terminating = 1;
 	};
-	log_info "Terminating...";
+	log_info "Terminating gracefully...";
 	async { App::cdnget::Worker::terminate() }->detach();
 	async { App::cdnget::Downloader::terminate() }->detach();
 	return 1;
@@ -199,6 +206,10 @@ Digest::SHA
 =item *
 
 LWP::UserAgent
+
+=item *
+
+GD
 
 =item *
 

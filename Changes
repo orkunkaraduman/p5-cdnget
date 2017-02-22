@@ -1,3 +1,10 @@
+0.03	2017-02-22
+		- Improvements
+		- Added hook function
+		- Added imgresize hook
+		- Added log_info
+		- Added terminating forcefully
+
 0.02	2017-02-20
 		- Improved and refactored
 

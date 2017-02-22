@@ -67,16 +67,15 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	App::cdnget::log_info("Workers gracefully terminating...");
-	if ($workerSemaphore->down_timed(3, $maxCount))
+	App::cdnget::log_info("Workers terminating...");
+	my $gracefully = 0;
+	while (not $gracefully and not $App::cdnget::terminating_force)
 	{
-		App::cdnget::log_info("Workers terminated.");
-	} else
-	{
-		App::cdnget::log_info("Workers will be forcefully terminated... Because did not respond in 3 seconds!");
+		$gracefully = $workerSemaphore->down_timed(3, $maxCount);
 	}
 	lock($terminated);
 	$terminated = 1;
+	App::cdnget::log_info("Workers terminated".($gracefully? " gracefully": "").".");
 	return 1;
 }
 

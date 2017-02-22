@@ -56,16 +56,15 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	App::cdnget::log_info("Downloaders gracefully terminating...");
-	if ($downloaderSemaphore->down_timed(3, $maxCount))
+	App::cdnget::log_info("Downloaders terminating...");
+	my $gracefully = 0;
+	while (not $gracefully and not $App::cdnget::terminating_force)
 	{
-		App::cdnget::log_info("Downloaders terminated.");
-	} else
-	{
-		App::cdnget::log_info("Downloaders will be forcefully terminated... Because did not respond in 3 seconds!");
+		$gracefully = $downloaderSemaphore->down_timed(3, $maxCount);
 	}
 	lock($terminated);
 	$terminated = 1;
+	App::cdnget::log_info("Downloaders terminated".($gracefully? " gracefully": "").".");
 	return 1;
 }
 
