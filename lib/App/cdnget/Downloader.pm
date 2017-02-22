@@ -1,6 +1,8 @@
 package App::cdnget::Downloader;
 use Object::Base;
 use v5.14;
+use feature qw(switch);
+no if ($] >= 5.018), 'warnings' => 'experimental';
 use bytes;
 use IO::Handle;
 use FileHandle;
@@ -8,6 +10,8 @@ use Time::HiRes qw(sleep usleep);
 use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
+use GD;
+use Lazy::Utils;
 
 use App::cdnget;
 use App::cdnget::Exception;
@@ -15,7 +19,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 }
 
 
@@ -28,7 +32,7 @@ my $downloaderSemaphore :shared;
 our %uids :shared;
 
 
-attributes qw(:shared uid path url tid);
+attributes qw(:shared uid path url hook tid);
 
 
 sub init
@@ -52,9 +56,15 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	$downloaderSemaphore->down($maxCount);
+	App::cdnget::log_info("Downloaders terminating...");
+	my $gracefully = 0;
+	while (not $gracefully and not $App::cdnget::terminating_force)
+	{
+		$gracefully = $downloaderSemaphore->down_timed(3, $maxCount);
+	}
 	lock($terminated);
 	$terminated = 1;
+	App::cdnget::log_info("Downloaders terminated".($gracefully? " gracefully": "").".");
 	return 1;
 }
 
@@ -79,7 +89,7 @@ sub terminated
 sub new
 {
 	my $class = shift;
-	my ($uid, $path, $url) = @_;
+	my ($uid, $path, $url, $hook) = @_;
 	while (not $downloaderSemaphore->down_timed(1))
 	{
 		if (terminating())
@@ -98,6 +108,7 @@ sub new
 	$self->uid = $uid;
 	$self->path = $path;
 	$self->url = $url;
+	$self->hook = $hook;
 	$self->tid = undef;
 	{
 		lock($self);
@@ -126,9 +137,88 @@ sub throw
 	unless (ref($msg))
 	{
 		$msg = "Unknown" unless $msg;
-		$msg = "Downloader ".$self->uid." $msg";
+		$msg = "Downloader ".
+			shellmeta("uid=${self->uid}", 1)." ".
+			shellmeta("url=${self->url}", 1)." ".
+			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
+}
+
+sub processHook_img
+{
+	my $self = shift;
+	my ($hook, $response, @params) = @_;
+	my $headers = $response->{_headers};
+	my $img;
+	given ($headers->content_type)
+	{
+		when ("image/png")
+		{
+			$img = GD::Image->newFromPngData($response->decoded_content) or $self->throw($!);
+		}
+		when ("image/jpeg")
+		{
+			$img = GD::Image->newFromJpegData($response->decoded_content) or $self->throw($!);
+		}
+		default
+		{
+			$self->throw("Unsupported content type for image");
+		}
+	}
+	$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
+	$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
+	$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
+	given ($hook)
+	{
+		when (/^imgresize$/i)
+		{
+			my $newimg = new GD::Image($params[0], $params[1]) or $self->throw($!);
+			$newimg->copyResampled($img, 0, 0, 0, 0, $params[0], $params[1], $img->width, $img->height);
+			my $data;
+			given ($headers->content_type)
+			{
+				when ("image/png")
+				{
+					$data = $newimg->png($params[2]) or $self->throw($!);
+				}
+				when ("image/jpeg")
+				{
+					$data = $newimg->jpeg($params[2]) or $self->throw($!);
+				}
+			}
+			return "Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n\r\n".$data;
+		}
+		#when (/^imgcrop$/i)
+		#{
+		#}
+		default
+		{
+			$self->throw("Unsupported img hook");
+		}
+	}
+	return;
+}
+
+sub processHook
+{
+	my $self = shift;
+	my ($response) = @_;
+	my @params = split /\s+/, $self->hook;
+	my $hook = shift @params;
+	return unless defined($hook);
+	given ($hook)
+	{
+		when (/^img/i)
+		{
+			return $self->processHook_img($hook, $response, @params);
+		}
+		default
+		{
+			$self->throw("Unsupported hook");
+		}
+	}
+	return;
 }
 
 sub run
@@ -157,18 +247,22 @@ sub run
 
 	eval
 	{
-		$fh->binmode(":bytes") or $self->throw($!);;
-		my $ua = LWP::UserAgent->new(agent => "p5-App::cdnget/${App::cdnget::VERSION}",
+		my $max_size = undef;
+		if ($self->hook)
+		{
+			$max_size = 20*1024*1024;
+		}
+		$fh->binmode(":bytes") or $self->throw($!);
+		my $ua = LWP::UserAgent->new(agent => "p5-cdnget/${App::cdnget::VERSION}",
 			max_redirect => 1,
+			max_size => $max_size,
 			requests_redirectable => [],
-			timeout => 15);
-		$ua->add_handler(
-			response_header => sub
+			timeout => 5);
+		my $response_header = sub
 			{
-				my ($response, $ua, $h) = @_;
+				my ($response, $ua) = @_;
 				local ($/, $\) = ("\r\n")x2;
 				my $status = $response->{_rc};
-				#$self->throw("Status code: $status") unless $status =~ /^[23]\d\d/;
 				my $headers = $response->{_headers};
 				$fh->print("Status: ", $status) or $self->throw($!);
 				$fh->print("Client-URL: ", $self->url) or $self->throw($!);
@@ -179,20 +273,37 @@ sub run
 				}
 				$fh->print("") or $self->throw($!);
 				return 1;
-			},
-		);
-		my $response = $ua->get($self->url,
-			':read_size_hint' => $App::cdnget::CHUNK_SIZE,
-			':content_cb' => sub
+			};
+		my $content_cb = sub
 			{
 				my ($data, $response) = @_;
 				$fh->write($data, length($data)) or $self->throw($!);
 				$self->throw("Terminating") if $self->terminating;
 				return 1;
-			},
-		);
+			};
+		my %matchspec = (':read_size_hint' => $App::cdnget::CHUNK_SIZE);
+		unless ($self->hook)
+		{
+			$ua->add_handler(
+				response_header => $response_header,
+			);
+			$matchspec{':content_cb'} = $content_cb;
+		}
+		my $response = $ua->get($self->url, %matchspec);
 		die $response->header("X-Died")."\n" if $response->header("X-Died");
 		$self->throw("Download failed") if $response->header("Client-Aborted");
+		if ($self->hook)
+		{
+			if ($response->is_success)
+			{
+				my $data = $self->processHook($response);
+				$fh->print($data) or $self->throw($!);
+			} else
+			{
+				$response_header->($response, $ua);
+				$content_cb->($response->decoded_content, $response);
+			}
+		}
 	};
 	do
 	{

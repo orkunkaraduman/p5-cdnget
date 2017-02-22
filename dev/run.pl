@@ -1,40 +1,31 @@
-package App::cdnget::Exception;
-use Object::Base qw(Object::Exception);
+#! /usr/bin/perl
+=head1 NAME
+
+run.pl - runs application
+
+=head1 VERSION
+
+version not defined
+
+=head1 ABSTRACT
+
+runs application
+
+=cut
+use strict;
+use warnings;
 use v5.14;
-use bytes;
-use DateTime;
+use utf8;
+use open qw(:utf8 :std);
+use open IO => ':bytes';
+use FindBin;
+
+use lib "${FindBin::Bin}/../lib";
+use App::cdnget;
 
 
-BEGIN
-{
-	our $VERSION     = '0.03';
-}
-
-
-sub msg :lvalue
-{
-	my $self = shift;
-	my ($msg) = @_;
-	my @args = @_;
-	if (@args >= 1 and not ref($msg))
-	{
-		$msg = "Unknown" unless $msg;
-		my $dts = DateTime->now(time_zone => POSIX::strftime("%z", localtime), locale => "en")->strftime('%x %T %z');
-		$msg = "[$dts] $msg";
-		$args[0] = $msg;
-	}
-	$self->SUPER::msg(@args);
-}
-
-
-1;
+exit run();
 __END__
-=head1 REPOSITORY
-
-B<GitHub> L<https://github.com/orkunkaraduman/p5-cdnget>
-
-B<CPAN> L<https://metacpan.org/release/App-cdnget>
-
 =head1 AUTHOR
 
 Orkun Karaduman <orkunkaraduman@gmail.com>

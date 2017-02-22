@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 }
 
 
@@ -39,16 +39,16 @@ attributes qw(:shared tid);
 
 sub init
 {
-	my ($_maxCount, $_spareCount, $_addr, $_cachePath) = @_;
-	$maxCount = $_maxCount;
+	my ($_spareCount, $_maxCount, $_cachePath, $_addr) = @_;
 	$spareCount = $_spareCount;
-	$addr = $_addr;
+	$maxCount = $_maxCount;
 	$cachePath = $_cachePath;
 	$cachePath = substr($cachePath, 0, length($cachePath)-1) while $cachePath and substr($cachePath, -1) eq "/";
+	$addr = $_addr;
 	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
 	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
-	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
-	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
+	$accepterSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
+	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if $addr;
 	return 1;
 }
 
@@ -67,9 +67,15 @@ sub terminate
 		return 0 if $terminating;
 		$terminating = 1;
 	};
-	$workerSemaphore->down($maxCount);
+	App::cdnget::log_info("Workers terminating...");
+	my $gracefully = 0;
+	while (not $gracefully and not $App::cdnget::terminating_force)
+	{
+		$gracefully = $workerSemaphore->down_timed(3, $maxCount);
+	}
 	lock($terminated);
 	$terminated = 1;
+	App::cdnget::log_info("Workers terminated".($gracefully? " gracefully": "").".");
 	return 1;
 }
 
@@ -144,7 +150,8 @@ sub throw
 	unless (ref($msg))
 	{
 		$msg = "Unknown" unless $msg;
-		$msg = "Worker $msg";
+		$msg = "Worker ".
+			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
 }
@@ -159,7 +166,7 @@ sub worker
 	my $id = $env->{CDNGET_ID};
 	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
 
-	my $uri = $env->{DOCUMENT_URI};
+	my $uri = $env->{REQUEST_URI};
 	$self->throw("Invalid URI") unless defined($uri);
 	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
 
@@ -171,7 +178,7 @@ sub worker
 
 	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
 	my $pathDigest = Digest::SHA::sha256_hex($url);
-	my $uid = "#$id=$pathDigest";
+	my $uid = "#$id/$pathDigest";
 	my $path = "$cachePath/$id";
 	mkdir($path);
 	my @dirs = $pathDigest =~ /..../g;
@@ -192,7 +199,7 @@ sub worker
 		$fh = FileHandle->new($path, "<");
 		unless ($fh)
 		{
-			return unless App::cdnget::Downloader->new($uid, $path, $url);
+			return unless App::cdnget::Downloader->new($uid, $path, $url, $env->{CDNGET_HOOK});
 			$fh = FileHandle->new($path, "<") or $self->throw($!);
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};
@@ -204,6 +211,7 @@ sub worker
 		local ($/, $\) = ("\r\n")x2;
 		my $line;
 		my $buf;
+		my $empty = 1;
 		while (not $self->terminating)
 		{
 			threads->yield();
@@ -226,6 +234,7 @@ sub worker
 					not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 					return;
 				}
+				$empty = 0;
 			}
 			last unless $line;
 		}
@@ -244,6 +253,15 @@ sub worker
 				next;
 			}
 			if (not $out->write($buf, $len))
+			{
+				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
+				return;
+			}
+			$empty = 0;
+		}
+		if ($empty)
+		{
+			if (not $out->print("Status: 404\r\n"))
 			{
 				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 				return;

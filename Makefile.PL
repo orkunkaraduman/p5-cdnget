@@ -18,13 +18,14 @@ WriteMakefile(
 		'FCGI'			=> '0.78',
 		'Digest::SHA'	=> '5.96',
 		'LWP::UserAgent' => '6.15',
+		'GD'			=> '2.56',
 		'Lazy::Utils'	=> '1.08',
 		'Object::Base'	=> '1.11',
 	},
 	EXE_FILES			=> [qw(
 	)],
 	AUTHOR				=> 'Orkun Karaduman <orkunkaraduman@gmail.com>',
-	ABSTRACT			=> 'CDN Engine',
+	ABSTRACT			=> 'CDN Reverse Proxy',
 	LICENSE				=> 'gpl_3',
 	META_MERGE			=> {
 		'meta-spec'		=> {

@@ -1,19 +1,19 @@
 package App::cdnget;
 =head1 NAME
 
-App::cdnget - CDN Engine
+App::cdnget - CDN Reverse Proxy
 
 =head1 VERSION
 
-version 0.02
+version 0.03
 
 =head1 ABSTRACT
 
-CDN Engine
+CDN Reverse Proxy
 
 =head1 DESCRIPTION
 
-App::cdnget is a FastCGI application that flexible pull-mode Content Delivery Network engine.
+p5-cdnget is a FastCGI application that flexible pull-mode Content Delivery Network reverse proxy.
 
 B<This is ALPHA version>
 
@@ -40,6 +40,7 @@ use warnings;
 use v5.14;
 use utf8;
 use Time::HiRes qw(sleep usleep);
+use DateTime;
 use Lazy::Utils;
 
 use App::cdnget::Exception;
@@ -50,9 +51,9 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.02';
+	our $VERSION     = '0.03';
 	our @ISA         = qw(Exporter);
-	our @EXPORT      = qw(main);
+	our @EXPORT      = qw(main run);
 	our @EXPORT_OK   = qw();
 }
 
@@ -65,25 +66,21 @@ our $DTF_SYSLOG = "%b %e %T";
 our $CHUNK_SIZE = 256*1024;
 
 my $terminating :shared = 0;
+my $terminating_force :shared = 0;
 
 
-sub terminate
+sub log_info
 {
-	do
-	{
-		lock($terminating);
-		return 0 if $terminating;
-		$terminating = 1;
-	};
-	say "Terminating...";
-	async { App::cdnget::Worker::terminate() }->detach();
-	async { App::cdnget::Downloader::terminate() }->detach();
-	return 1;
+	my ($msg) = @_;
+	$msg = "Unknown" unless $msg;
+	my $dts = DateTime->now(time_zone => POSIX::strftime("%z", localtime), locale => "en")->strftime('%x %T %z');
+	$msg = "[$dts] $msg";
+	say $msg;
 }
 
 sub main
 {
-	say "Started.";
+	log_info "Starting p5-cdnget/${App::cdnget::VERSION}";
 	eval
 	{
 		my $cmdargs = commandArgs({ valuableArgs => 1, noCommand => 1 }, @_);
@@ -91,15 +88,21 @@ sub main
 		$spares = 1 unless defined($spares) and $spares >= 1;
 		my $maxWorkers = $cmdargs->{"--max-workers"};
 		$maxWorkers = $spares+1 unless defined($maxWorkers) and $maxWorkers > $spares;
-		my $socket = $cmdargs->{"--socket"};
 		my $cachePath = $cmdargs->{"--cache-path"};
 		$cachePath = "/tmp/cdnget" unless defined($cachePath);
-		App::cdnget::Worker::init($maxWorkers, $spares, $socket, $cachePath);
+		my $addr = $cmdargs->{"--addr"};
+		$addr = "" unless defined($addr);
+		App::cdnget::Worker::init($spares, $maxWorkers, $cachePath, $addr);
 		App::cdnget::Downloader::init($maxWorkers*10);
-		$SIG{INT} = sub
+		$SIG{INT} = $SIG{TERM} = sub
 		{
 			terminate();
 		};
+		log_info "Started ".
+			shellmeta("spares=$spares", 1)." ".
+			shellmeta("max-workers=$maxWorkers", 1)." ".
+			shellmeta("cache-path=$cachePath", 1)." ".
+			shellmeta("addr=$addr", 1);
 		while (not App::cdnget::Worker::terminated() or not App::cdnget::Downloader::terminated())
 		{
 			eval { App::cdnget::Worker->new() };
@@ -113,7 +116,33 @@ sub main
 		warn $@;
 	}
 	usleep(100*1000);
+	log_info "Terminated p5-cdnget/${App::cdnget::VERSION}";
 	return 0;
+}
+
+sub run
+{
+	return main(@ARGV);
+}
+
+sub terminate
+{
+	do
+	{
+		lock($terminating);
+		if ($terminating)
+		{
+			log_info "Terminating...";
+			lock($terminating_force);
+			$terminating_force = 1;
+			return 0;
+		}
+		$terminating = 1;
+	};
+	log_info "Terminating gracefully...";
+	async { App::cdnget::Worker::terminate() }->detach();
+	async { App::cdnget::Downloader::terminate() }->detach();
+	return 1;
 }
 
 
@@ -177,6 +206,10 @@ Digest::SHA
 =item *
 
 LWP::UserAgent
+
+=item *
+
+GD
 
 =item *
 
