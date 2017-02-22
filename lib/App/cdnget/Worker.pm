@@ -204,6 +204,7 @@ sub worker
 		local ($/, $\) = ("\r\n")x2;
 		my $line;
 		my $buf;
+		my $empty = 1;
 		while (not $self->terminating)
 		{
 			threads->yield();
@@ -226,6 +227,7 @@ sub worker
 					not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 					return;
 				}
+				$empty = 0;
 			}
 			last unless $line;
 		}
@@ -244,6 +246,15 @@ sub worker
 				next;
 			}
 			if (not $out->write($buf, $len))
+			{
+				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
+				return;
+			}
+			$empty = 0;
+		}
+		if ($empty)
+		{
+			if (not $out->print("Status: 404\r\n"))
 			{
 				not $! or $!{EPIPE} or $!{ECONNRESET} or $!{EPROTOTYPE} or $self->throw($!);
 				return;

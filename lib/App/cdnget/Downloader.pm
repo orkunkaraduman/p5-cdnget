@@ -243,11 +243,11 @@ sub run
 			$max_size = 20*1024*1024;
 		}
 		$fh->binmode(":bytes") or $self->throw($!);
-		my $ua = LWP::UserAgent->new(agent => "p5-App::cdnget/${App::cdnget::VERSION}",
+		my $ua = LWP::UserAgent->new(agent => "p5-cdnget/${App::cdnget::VERSION}",
 			max_redirect => 1,
 			max_size => $max_size,
 			requests_redirectable => [],
-			timeout => 15);
+			timeout => 5);
 		my $response_header = sub
 			{
 				my ($response, $ua) = @_;
