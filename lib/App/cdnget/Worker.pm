@@ -47,7 +47,7 @@ sub init
 	$cachePath = substr($cachePath, 0, length($cachePath)-1) while $cachePath and substr($cachePath, -1) eq "/";
 	$workerSemaphore = Thread::Semaphore->new($maxCount) or App::cdnget::Exception->throw($!);
 	$spareSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
-	$accepterSemaphore = Thread::Semaphore->new(1) or App::cdnget::Exception->throw($!);
+	$accepterSemaphore = Thread::Semaphore->new($spareCount) or App::cdnget::Exception->throw($!);
 	$socket = FCGI::OpenSocket($addr, $maxCount) or App::cdnget::Exception->throw($!) if defined($addr);
 	return 1;
 }
