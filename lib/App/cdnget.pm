@@ -99,10 +99,10 @@ sub main
 			terminate();
 		};
 		log_info "Started ".
-			shellmeta("spares=$spares", 1)." ".
-			shellmeta("max-workers=$maxWorkers", 1)." ".
-			shellmeta("cache-path=$cachePath", 1)." ".
-			shellmeta("addr=$addr", 1);
+			"spares=$spares ".
+			"max-workers=$maxWorkers ".
+			"cache-path=\"".shellmeta($cachePath)."\" ".
+			"addr=\"".shellmeta($addr)."\"";
 		while (not App::cdnget::Worker::terminated() or not App::cdnget::Downloader::terminated())
 		{
 			eval { App::cdnget::Worker->new() };

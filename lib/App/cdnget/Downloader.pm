@@ -138,8 +138,8 @@ sub throw
 	{
 		$msg = "Unknown" unless $msg;
 		$msg = "Downloader ".
-			shellmeta("uid=${self->uid}", 1)." ".
-			shellmeta("url=${self->url}", 1)." ".
+			"uid=$self->uid ".
+			"url=\"".shellmeta($self->url)."\" ".
 			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
