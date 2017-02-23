@@ -4,7 +4,7 @@ App::cdnget - CDN Reverse Proxy
 
 # VERSION
 
-version 0.03
+version 0.04
 
 # ABSTRACT
 

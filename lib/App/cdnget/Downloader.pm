@@ -19,7 +19,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.03';
+	our $VERSION     = '0.04';
 }
 
 
@@ -138,8 +138,8 @@ sub throw
 	{
 		$msg = "Unknown" unless $msg;
 		$msg = "Downloader ".
-			shellmeta("uid=${self->uid}", 1)." ".
-			shellmeta("url=${self->url}", 1)." ".
+			"uid=$self->uid ".
+			"url=\"".shellmeta($self->url)."\" ".
 			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
@@ -166,13 +166,13 @@ sub processHook_img
 			$self->throw("Unsupported content type for image");
 		}
 	}
-	$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
-	$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
-	$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
 	given ($hook)
 	{
 		when (/^imgresize$/i)
 		{
+			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
+			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
+			$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
 			my $newimg = new GD::Image($params[0], $params[1]) or $self->throw($!);
 			$newimg->copyResampled($img, 0, 0, 0, 0, $params[0], $params[1], $img->width, $img->height);
 			my $data;
@@ -187,11 +187,31 @@ sub processHook_img
 					$data = $newimg->jpeg($params[2]) or $self->throw($!);
 				}
 			}
-			return "Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n\r\n".$data;
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
 		}
-		#when (/^imgcrop$/i)
-		#{
-		#}
+		when (/^imgcrop$/i)
+		{
+			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
+			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
+			$params[2] = 0 unless defined($params[2]) and $params[2] > 0;
+			$params[3] = 0 unless defined($params[3]) and $params[3] > 0;
+			$params[4] = 60 unless defined($params[4]) and $params[4] >= 0 and $params[4] <= 100;
+			my $newimg = new GD::Image($params[0], $params[1]) or $self->throw($!);
+			$newimg->copy($img, 0, 0, $params[2], $params[3], $params[0], $params[1]);
+			my $data;
+			given ($headers->content_type)
+			{
+				when ("image/png")
+				{
+					$data = $newimg->png($params[4]) or $self->throw($!);
+				}
+				when ("image/jpeg")
+				{
+					$data = $newimg->jpeg($params[4]) or $self->throw($!);
+				}
+			}
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
+		}
 		default
 		{
 			$self->throw("Unsupported img hook");
@@ -264,9 +284,9 @@ sub run
 				local ($/, $\) = ("\r\n")x2;
 				my $status = $response->{_rc};
 				my $headers = $response->{_headers};
-				$fh->print("Status: ", $status) or $self->throw($!);
-				$fh->print("Client-URL: ", $self->url) or $self->throw($!);
-				$fh->print("Client-Date: ", POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
+				$fh->print("Status: ".$status) or $self->throw($!);
+				$fh->print("Client-URL: ".$self->url) or $self->throw($!);
+				$fh->print("Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
 				for my $header (sort grep /^(Content\-|Location\:)/i, $headers->header_field_names())
 				{
 					$fh->print("$header: ", $headers->header($header)) or $self->throw($!);
@@ -296,8 +316,14 @@ sub run
 		{
 			if ($response->is_success)
 			{
-				my $data = $self->processHook($response);
-				$fh->print($data) or $self->throw($!);
+				my ($header, $data) = $self->processHook($response);
+				if ($header)
+				{
+					$header .= "Client-URL: ".$self->url."\r\n";
+					$header .= "Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)."\r\n";
+					$data = "" unless defined($data);
+					$fh->print($header."\r\n".$data) or $self->throw($!);
+				}
 			} else
 			{
 				$response_header->($response, $ua);

@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = '0.03';
+	our $VERSION     = '0.04';
 }
 
 
@@ -166,22 +166,25 @@ sub worker
 	my $id = $env->{CDNGET_ID};
 	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
 
-	my $uri = $env->{REQUEST_URI};
-	$self->throw("Invalid URI") unless defined($uri);
-	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
-
 	my $origin = $env->{CDNGET_ORIGIN};
 	$self->throw("Invalid origin") unless defined($origin);
 	$origin = URI->new($origin);
 	$self->throw("Invalid origin scheme") unless $origin->scheme =~ /^http|https$/i;
 	$origin->path(substr($origin->path, 0, length($origin->path)-1)) while $origin->path and substr($origin->path, -1) eq "/";
 
+	my $uri = $env->{CDNGET_URI};
+	$self->throw("Invalid URI") unless defined($uri);
+	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
+
+	my $hook = $env->{CDNGET_HOOK};
+	$hook = "" unless defined($hook);
+
 	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
-	my $pathDigest = Digest::SHA::sha256_hex($url);
-	my $uid = "#$id/$pathDigest";
+	my $digest = Digest::SHA::sha256_hex("$url $hook");
+	my $uid = "$id/$digest";
 	my $path = "$cachePath/$id";
 	mkdir($path);
-	my @dirs = $pathDigest =~ /..../g;
+	my @dirs = $digest =~ /..../g;
 	my $file = pop @dirs;
 	for (@dirs)
 	{
@@ -199,7 +202,7 @@ sub worker
 		$fh = FileHandle->new($path, "<");
 		unless ($fh)
 		{
-			return unless App::cdnget::Downloader->new($uid, $path, $url, $env->{CDNGET_HOOK});
+			return unless App::cdnget::Downloader->new($uid, $path, $url, $hook);
 			$fh = FileHandle->new($path, "<") or $self->throw($!);
 		}
 		$downloader = $App::cdnget::Downloader::uids{$uid};

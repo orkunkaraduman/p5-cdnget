@@ -5,7 +5,7 @@ App::cdnget - CDN Reverse Proxy
 
 =head1 VERSION
 
-version 0.03
+version 0.04
 
 =head1 ABSTRACT
 
@@ -51,7 +51,7 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.03';
+	our $VERSION     = '0.04';
 	our @ISA         = qw(Exporter);
 	our @EXPORT      = qw(main run);
 	our @EXPORT_OK   = qw();
@@ -99,10 +99,10 @@ sub main
 			terminate();
 		};
 		log_info "Started ".
-			shellmeta("spares=$spares", 1)." ".
-			shellmeta("max-workers=$maxWorkers", 1)." ".
-			shellmeta("cache-path=$cachePath", 1)." ".
-			shellmeta("addr=$addr", 1);
+			"spares=$spares ".
+			"max-workers=$maxWorkers ".
+			"cache-path=\"".shellmeta($cachePath)."\" ".
+			"addr=\"".shellmeta($addr)."\"";
 		while (not App::cdnget::Worker::terminated() or not App::cdnget::Downloader::terminated())
 		{
 			eval { App::cdnget::Worker->new() };
