@@ -5,7 +5,7 @@ App::cdnget - CDN Reverse Proxy
 
 =head1 VERSION
 
-version 0.03
+version 0.04
 
 =head1 ABSTRACT
 
@@ -51,7 +51,7 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.03';
+	our $VERSION     = '0.04';
 	our @ISA         = qw(Exporter);
 	our @EXPORT      = qw(main run);
 	our @EXPORT_OK   = qw();
