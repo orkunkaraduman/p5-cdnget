@@ -187,7 +187,7 @@ sub processHook_img
 					$data = $newimg->jpeg($params[2]) or $self->throw($!);
 				}
 			}
-			return "Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n\r\n".$data;
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
 		}
 		#when (/^imgcrop$/i)
 		#{
@@ -264,9 +264,9 @@ sub run
 				local ($/, $\) = ("\r\n")x2;
 				my $status = $response->{_rc};
 				my $headers = $response->{_headers};
-				$fh->print("Status: ", $status) or $self->throw($!);
-				$fh->print("Client-URL: ", $self->url) or $self->throw($!);
-				$fh->print("Client-Date: ", POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
+				$fh->print("Status: ".$status) or $self->throw($!);
+				$fh->print("Client-URL: ".$self->url) or $self->throw($!);
+				$fh->print("Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)) or $self->throw($!);
 				for my $header (sort grep /^(Content\-|Location\:)/i, $headers->header_field_names())
 				{
 					$fh->print("$header: ", $headers->header($header)) or $self->throw($!);
@@ -296,8 +296,14 @@ sub run
 		{
 			if ($response->is_success)
 			{
-				my $data = $self->processHook($response);
-				$fh->print($data) or $self->throw($!);
+				my ($header, $data) = $self->processHook($response);
+				if ($header)
+				{
+					$header .= "Client-URL: ".$self->url."\r\n";
+					$header .= "Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)."\r\n";
+					$data = "" unless defined($data);
+					$fh->print($header."\r\n".$data) or $self->throw($!);
+				}
 			} else
 			{
 				$response_header->($response, $ua);
