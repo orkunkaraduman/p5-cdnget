@@ -7,7 +7,7 @@ use FileHandle;
 use Time::HiRes qw(sleep usleep);
 use Thread::Semaphore;
 use FCGI;
-use Digest::SHA;
+use Digest::MD5;
 
 use App::cdnget;
 use App::cdnget::Exception;
@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = '0.04';
+	our $VERSION     = '0.05';
 }
 
 
@@ -164,29 +164,38 @@ sub worker
 	my $env = $req->GetEnvironment();
 
 	my $id = $env->{CDNGET_ID};
-	$self->throw("Invalid ID") unless defined($id) and $id =~ /^\w+$/i;
+	$self->throw("Invalid ID") unless defined($id);
+	$id = ($id =~ /^(.*)/)[0];
+	$id =~ s/^\s+|\s+$//g;
+	$self->throw("Invalid ID") unless $id =~ /^\w+$/i;
 
 	my $origin = $env->{CDNGET_ORIGIN};
 	$self->throw("Invalid origin") unless defined($origin);
+	$origin = ($origin =~ /^(.*)/)[0];
+	$origin =~ s/^\s+|\s+$//g;
 	$origin = URI->new($origin);
 	$self->throw("Invalid origin scheme") unless $origin->scheme =~ /^http|https$/i;
 	$origin->path(substr($origin->path, 0, length($origin->path)-1)) while $origin->path and substr($origin->path, -1) eq "/";
 
 	my $uri = $env->{CDNGET_URI};
 	$self->throw("Invalid URI") unless defined($uri);
+	$uri = ($uri =~ /^(.*)/)[0];
+	$uri =~ s/^\s+|\s+$//g;
 	$uri = "/$uri" unless $uri and substr($uri, 0, 1) eq "/";
 
 	my $hook = $env->{CDNGET_HOOK};
 	$hook = "" unless defined($hook);
+	$hook = ($hook =~ /^(.*)/)[0];
+	$hook =~ s/^\s+|\s+$//g;
 
 	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
-	my $digest = Digest::SHA::sha256_hex("$url $hook");
+	my $digest = Digest::MD5::md5_hex("$url $hook");
 	my $uid = "$id/$digest";
 	my $path = "$cachePath/$id";
 	mkdir($path);
-	my @dirs = $digest =~ /..../g;
-	my $file = pop @dirs;
-	for (@dirs)
+	my @dirs = $digest =~ /(..)(.)$/;
+	my $file = $digest;
+	for (reverse @dirs)
 	{
 		$path .= "/$_";
 		mkdir($path);

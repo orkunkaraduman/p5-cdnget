@@ -11,6 +11,8 @@ use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
 use GD;
+use CSS::Minifier::XS;
+use JavaScript::Minifier::XS;
 use Lazy::Utils;
 
 use App::cdnget;
@@ -19,7 +21,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.04';
+	our $VERSION     = '0.05';
 }
 
 
@@ -138,8 +140,9 @@ sub throw
 	{
 		$msg = "Unknown" unless $msg;
 		$msg = "Downloader ".
-			"uid=$self->uid ".
+			"uid=".$self->uid." ".
 			"url=\"".shellmeta($self->url)."\" ".
+			"hook=\"".shellmeta($self->hook)."\" ".
 			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
@@ -170,8 +173,8 @@ sub processHook_img
 	{
 		when (/^imgresize$/i)
 		{
-			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
-			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
+			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0 and $params[0] <= 10000;
+			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0 and $params[1] <= 10000;
 			$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
 			my $newimg = new GD::Image($params[0], $params[1]) or $self->throw($!);
 			$newimg->copyResampled($img, 0, 0, 0, 0, $params[0], $params[1], $img->width, $img->height);
@@ -220,6 +223,48 @@ sub processHook_img
 	return;
 }
 
+sub processHook_css
+{
+	my $self = shift;
+	my ($hook, $response, @params) = @_;
+	my $headers = $response->{_headers};
+	$self->throw("Unsupported content type for css") unless $headers->content_type =~ /^(text\/css|application\/x\-pointplus)$/;
+	given ($hook)
+	{
+		when (/^cssminify$/i)
+		{
+			my $data = CSS::Minifier::XS::minify($response->decoded_content);
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
+		}
+		default
+		{
+			$self->throw("Unsupported css hook");
+		}
+	}
+	return;
+}
+
+sub processHook_js
+{
+	my $self = shift;
+	my ($hook, $response, @params) = @_;
+	my $headers = $response->{_headers};
+	$self->throw("Unsupported content type for js") unless $headers->content_type =~ /^(text\/javascript|text\/ecmascript|application\/javascript|application\/ecmascript|application\/x\-javascript)$/;
+	given ($hook)
+	{
+		when (/^jsminify$/i)
+		{
+			my $data = JavaScript::Minifier::XS::minify($response->decoded_content);
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
+		}
+		default
+		{
+			$self->throw("Unsupported js hook");
+		}
+	}
+	return;
+}
+
 sub processHook
 {
 	my $self = shift;
@@ -232,6 +277,14 @@ sub processHook
 		when (/^img/i)
 		{
 			return $self->processHook_img($hook, $response, @params);
+		}
+		when (/^css/i)
+		{
+			return $self->processHook_css($hook, $response, @params);
+		}
+		when (/^js/i)
+		{
+			return $self->processHook_js($hook, $response, @params);
 		}
 		default
 		{
@@ -320,6 +373,7 @@ sub run
 				if ($header)
 				{
 					$header .= "Client-URL: ".$self->url."\r\n";
+					$header .= "Client-Hook: ".$self->hook."\r\n";
 					$header .= "Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)."\r\n";
 					$data = "" unless defined($data);
 					$fh->print($header."\r\n".$data) or $self->throw($!);

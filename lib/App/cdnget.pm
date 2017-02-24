@@ -5,7 +5,7 @@ App::cdnget - CDN Reverse Proxy
 
 =head1 VERSION
 
-version 0.04
+version 0.05
 
 =head1 ABSTRACT
 
@@ -18,6 +18,7 @@ p5-cdnget is a FastCGI application that flexible pull-mode Content Delivery Netw
 B<This is ALPHA version>
 
 =cut
+### TODO: css, js minifier.
 BEGIN
 {
 	require Config;
@@ -51,7 +52,7 @@ use App::cdnget::Downloader;
 BEGIN
 {
 	require Exporter;
-	our $VERSION     = '0.04';
+	our $VERSION     = '0.05';
 	our @ISA         = qw(Exporter);
 	our @EXPORT      = qw(main run);
 	our @EXPORT_OK   = qw();
