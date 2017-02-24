@@ -18,7 +18,7 @@ p5-cdnget is a FastCGI application that flexible pull-mode Content Delivery Netw
 B<This is ALPHA version>
 
 =cut
-### TODO: css, js minifier. throw log hook, client-hook header.
+### TODO: css, js minifier.
 BEGIN
 {
 	require Config;
