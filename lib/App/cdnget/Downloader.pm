@@ -140,7 +140,7 @@ sub throw
 	{
 		$msg = "Unknown" unless $msg;
 		$msg = "Downloader ".
-			"uid=$self->uid ".
+			"uid=".$self->uid." ".
 			"url=\"".shellmeta($self->url)."\" ".
 			"hook=\"".shellmeta($self->hook)."\" ".
 			$msg;

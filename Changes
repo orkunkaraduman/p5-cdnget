@@ -5,6 +5,7 @@
 		- Added imgresize hook max width/height limits, 10000
 		- Added css and js hooks
 		- Added minify hook for css and js
+		- Downloader::throw() fix for uid
 
 0.04	2017-02-23
 		- Bug fixed for path digest creating
