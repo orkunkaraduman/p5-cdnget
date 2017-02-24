@@ -19,7 +19,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.04';
+	our $VERSION     = '0.05';
 }
 
 
@@ -140,6 +140,7 @@ sub throw
 		$msg = "Downloader ".
 			"uid=$self->uid ".
 			"url=\"".shellmeta($self->url)."\" ".
+			"hook=\"".shellmeta($self->hook)."\" ".
 			$msg;
 	}
 	App::cdnget::Exception->throw($msg, 1);
@@ -320,6 +321,7 @@ sub run
 				if ($header)
 				{
 					$header .= "Client-URL: ".$self->url."\r\n";
+					$header .= "Client-Hook: ".$self->hook."\r\n";
 					$header .= "Client-Date: ".POSIX::strftime($App::cdnget::DTF_RFC822_GMT, gmtime)."\r\n";
 					$data = "" unless defined($data);
 					$fh->print($header."\r\n".$data) or $self->throw($!);

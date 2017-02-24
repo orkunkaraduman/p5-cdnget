@@ -7,7 +7,7 @@ use FileHandle;
 use Time::HiRes qw(sleep usleep);
 use Thread::Semaphore;
 use FCGI;
-use Digest::SHA;
+use Digest::MD5;
 
 use App::cdnget;
 use App::cdnget::Exception;
@@ -16,7 +16,7 @@ use App::cdnget::Downloader;
 
 BEGIN
 {
-	our $VERSION     = '0.04';
+	our $VERSION     = '0.05';
 }
 
 
@@ -180,13 +180,13 @@ sub worker
 	$hook = "" unless defined($hook);
 
 	my $url = $origin->scheme."://".$origin->host_port.$origin->path.$uri;
-	my $digest = Digest::SHA::sha256_hex("$url $hook");
+	my $digest = Digest::MD5::md5_hex("$url $hook");
 	my $uid = "$id/$digest";
 	my $path = "$cachePath/$id";
 	mkdir($path);
-	my @dirs = $digest =~ /..../g;
-	my $file = pop @dirs;
-	for (@dirs)
+	my @dirs = $digest =~ /(..)(.)$/;
+	my $file = $digest;
+	for (reverse @dirs)
 	{
 		$path .= "/$_";
 		mkdir($path);

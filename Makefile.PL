@@ -16,7 +16,7 @@ WriteMakefile(
 		'Time::HiRes'	=> '1.9740',
 		'DateTime'		=> '1.42',
 		'FCGI'			=> '0.78',
-		'Digest::SHA'	=> '5.96',
+		'Digest::MD5'	=> '2.55',
 		'LWP::UserAgent' => '6.15',
 		'GD'			=> '2.56',
 		'Lazy::Utils'	=> '1.08',
