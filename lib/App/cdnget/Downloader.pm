@@ -171,8 +171,8 @@ sub processHook_img
 	{
 		when (/^imgresize$/i)
 		{
-			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0;
-			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0;
+			$params[0] = $img->width unless defined($params[0]) and $params[0] > 0 and $params[0] <= 10000;
+			$params[1] = $img->height unless defined($params[1]) and $params[1] > 0 and $params[1] <= 10000;
 			$params[2] = 60 unless defined($params[2]) and $params[2] >= 0 and $params[2] <= 100;
 			my $newimg = new GD::Image($params[0], $params[1]) or $self->throw($!);
 			$newimg->copyResampled($img, 0, 0, 0, 0, $params[0], $params[1], $img->width, $img->height);
