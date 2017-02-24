@@ -19,6 +19,8 @@ WriteMakefile(
 		'Digest::MD5'	=> '2.55',
 		'LWP::UserAgent' => '6.15',
 		'GD'			=> '2.56',
+		'CSS::Minifier::XS'	=> '0.09',
+		'JavaScript::Minifier::XS' => '0.11',
 		'Lazy::Utils'	=> '1.08',
 		'Object::Base'	=> '1.11',
 	},

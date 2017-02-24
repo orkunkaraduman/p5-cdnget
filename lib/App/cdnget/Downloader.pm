@@ -11,6 +11,8 @@ use Thread::Semaphore;
 use HTTP::Headers;
 use LWP::UserAgent;
 use GD;
+use CSS::Minifier::XS;
+use JavaScript::Minifier::XS;
 use Lazy::Utils;
 
 use App::cdnget;
@@ -221,6 +223,48 @@ sub processHook_img
 	return;
 }
 
+sub processHook_css
+{
+	my $self = shift;
+	my ($hook, $response, @params) = @_;
+	my $headers = $response->{_headers};
+	$self->throw("Unsupported content type for css") unless $headers->content_type =~ /^(text\/css|application\/x\-pointplus)$/;
+	given ($hook)
+	{
+		when (/^cssminify$/i)
+		{
+			my $data = CSS::Minifier::XS::minify($response->decoded_content);
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
+		}
+		default
+		{
+			$self->throw("Unsupported css hook");
+		}
+	}
+	return;
+}
+
+sub processHook_js
+{
+	my $self = shift;
+	my ($hook, $response, @params) = @_;
+	my $headers = $response->{_headers};
+	$self->throw("Unsupported content type for js") unless $headers->content_type =~ /^(text\/javascript|text\/ecmascript|application\/javascript|application\/ecmascript|application\/x\-javascript)$/;
+	given ($hook)
+	{
+		when (/^jsminify$/i)
+		{
+			my $data = JavaScript::Minifier::XS::minify($response->decoded_content);
+			return ("Status: 200\r\nContent-Type: ".$headers->content_type."\r\nContent-Length: ".length($data)."\r\n", $data);
+		}
+		default
+		{
+			$self->throw("Unsupported js hook");
+		}
+	}
+	return;
+}
+
 sub processHook
 {
 	my $self = shift;
@@ -233,6 +277,14 @@ sub processHook
 		when (/^img/i)
 		{
 			return $self->processHook_img($hook, $response, @params);
+		}
+		when (/^css/i)
+		{
+			return $self->processHook_css($hook, $response, @params);
+		}
+		when (/^js/i)
+		{
+			return $self->processHook_js($hook, $response, @params);
 		}
 		default
 		{

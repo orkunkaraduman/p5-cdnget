@@ -3,6 +3,8 @@
 		- Added hook info to cache files and Downloader::throw()
 		- Improved fastcgi params check
 		- Added imgresize hook max width/height limits, 10000
+		- Added css and js hooks
+		- Added minify hook for css and js
 
 0.04	2017-02-23
 		- Bug fixed for path digest creating
