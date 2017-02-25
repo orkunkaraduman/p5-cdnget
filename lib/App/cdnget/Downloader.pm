@@ -21,7 +21,7 @@ use App::cdnget::Exception;
 
 BEGIN
 {
-	our $VERSION     = '0.05';
+	our $VERSION     = '0.06';
 }
 
 
@@ -365,7 +365,13 @@ sub run
 		my $response = $ua->get($self->url, %matchspec);
 		die $response->header("X-Died")."\n" if $response->header("X-Died");
 		$self->throw("Download failed") if $response->header("Client-Aborted");
-		if ($self->hook)
+		unless ($self->hook)
+		{
+			unless ($response->is_success)
+			{
+				$content_cb->($response->decoded_content, $response);
+			}
+		} else
 		{
 			if ($response->is_success)
 			{
