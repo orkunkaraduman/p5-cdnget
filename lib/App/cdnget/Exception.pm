@@ -1,13 +1,12 @@
 package App::cdnget::Exception;
 use Object::Base qw(Object::Exception);
 use v5.14;
-use bytes;
 use DateTime;
 
 
 BEGIN
 {
-	our $VERSION     = '0.03';
+	our $VERSION     = '0.07';
 }
 
 

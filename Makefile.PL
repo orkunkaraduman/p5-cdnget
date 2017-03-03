@@ -33,7 +33,7 @@ WriteMakefile(
 		'meta-spec'		=> {
 			version		=> 2,
 		},
-		resources => {
+		resources		=> {
 			homepage	=> 'https://metacpan.org/release/App-cdnget',
 			license		=> 'https://www.gnu.org/licenses/gpl-3.0.html',
 			repository	=> {
